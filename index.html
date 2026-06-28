@@ -704,13 +704,14 @@ function handleRoomUpdate(data) {
   const mySelection = roundData[myKey];
   const oppSelection = roundData[oppKey];
 
-  // 結果がすでにFirebaseに書き込まれている場合は表示
+  // 結果がすでにFirebaseに書き込まれている場合は表示（confirmed不問）
   if (roundData.result && !resolving) {
-    if (gameState.confirmed) {
-      stopTimeoutTimer();
-      resolving = true;
-      displayResultFromFirebase(roundData.result, mySelection, oppSelection);
-    }
+    stopTimeoutTimer();
+    resolving = true;
+    // mySelectionがまだない場合（相手より先にresultが来た）でも表示
+    const mySel = mySelection || { main: gameState.selMain, supp: gameState.selSupp };
+    const oppSel = oppSelection || {};
+    displayResultFromFirebase(roundData.result, mySel, oppSel);
     return;
   }
 
