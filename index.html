@@ -150,6 +150,30 @@
   .final-sub { font-size: 14px; color: var(--muted); }
 
   .divider { height: 1px; background: var(--border); margin: 4px 0; }
+
+  /* ===== RULE MODAL ===== */
+  .rule-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 200; display: none; flex-direction: column; }
+  .rule-modal.open { display: flex; }
+  .rule-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .rule-modal-header h2 { font-size: 16px; font-weight: 700; color: var(--accent); letter-spacing: 2px; }
+  .rule-close { background: none; border: none; color: var(--muted); font-size: 24px; cursor: pointer; padding: 0 4px; }
+  .rule-body { flex: 1; overflow-y: auto; padding: 16px; }
+  .rule-section { margin-bottom: 20px; }
+  .rule-section h3 { font-size: 13px; font-weight: 700; color: var(--accent2); letter-spacing: 1px; margin-bottom: 10px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+  .rule-text { font-size: 13px; color: var(--text); line-height: 1.8; margin-bottom: 8px; }
+  .rule-text li { margin-left: 16px; margin-bottom: 4px; }
+  .rule-card-row { background: var(--surface); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--border); }
+  .rule-card-row .rc-name { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .rule-card-row .rc-pow { font-size: 12px; color: var(--accent2); font-weight: 600; }
+  .rule-card-row .rc-effect { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .rule-card-row .rc-note { font-size: 11px; margin-top: 4px; }
+  .ban-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; background: rgba(226,75,74,0.2); color: var(--danger); border: 1px solid rgba(226,75,74,0.3); }
+  .ban-use-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; background: rgba(240,160,51,0.2); color: var(--warn); border: 1px solid rgba(240,160,51,0.3); }
+  .rule-flow { display: flex; flex-direction: column; gap: 4px; }
+  .rule-flow-step { background: var(--surface2); border-radius: 8px; padding: 10px 12px; font-size: 13px; border-left: 3px solid var(--accent); }
+  .rule-flow-step .step-num { font-size: 11px; color: var(--accent); font-weight: 700; margin-bottom: 2px; }
+  .rule-flow-arrow { text-align: center; color: var(--muted); font-size: 12px; }
+  .highlight-box { background: rgba(124,92,191,0.1); border: 1px solid rgba(124,92,191,0.3); border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.7; color: var(--text); margin-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -172,7 +196,7 @@
 <div class="screen" id="screen-lobby">
   <div class="lobby-header">
     <div class="myname">参加中：<span id="lobby-myname"></span></div>
-    <div class="round-dots" id="lobby-dots" style="display:none"></div>
+    <button class="btn btn-secondary btn-sm" onclick="openRules()" style="font-size:12px;padding:6px 12px">ルール説明</button>
   </div>
   <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">対戦募集中のプレイヤー</div>
   <div class="lobby-list" id="lobby-list">
@@ -201,10 +225,13 @@
 <div class="screen" id="screen-game">
   <div class="game-header">
     <div class="round-info" id="round-info">ラウンド 1 / 5</div>
-    <div class="score-display">
-      <span class="score-me" id="score-me">自分 0勝</span>
-      <span style="color:var(--muted)">|</span>
-      <span class="score-opp" id="score-opp">相手 0勝</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="score-display">
+        <span class="score-me" id="score-me">自分 0勝</span>
+        <span style="color:var(--muted)">|</span>
+        <span class="score-opp" id="score-opp">相手 0勝</span>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="openRules()" style="font-size:11px;padding:4px 8px;white-space:nowrap">ルール</button>
     </div>
   </div>
 
@@ -255,6 +282,135 @@
 </div>
 
 <!-- Firebase -->
+
+<!-- ===== RULE MODAL ===== -->
+<div class="rule-modal" id="rule-modal">
+  <div class="rule-modal-header">
+    <h2>ルール説明</h2>
+    <button class="rule-close" onclick="closeRules()">✕</button>
+  </div>
+  <div class="rule-body">
+
+    <div class="rule-section">
+      <h3>ゲーム概要</h3>
+      <div class="highlight-box">
+        13枚のカードを使った2人用心理戦カードゲーム。<br>
+        毎ラウンド<strong>メインカード1枚＋補助カード1枚</strong>を同時に出し合い、戦力値と補助効果で勝敗を競う。<br>
+        5ラウンド制で勝ち数が多い方が優勝！
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h3>1ラウンドの流れ</h3>
+      <div class="rule-flow">
+        <div class="rule-flow-step"><div class="step-num">STEP 1</div>メインカード（A or B）を1枚選ぶ</div>
+        <div class="rule-flow-arrow">↓</div>
+        <div class="rule-flow-step"><div class="step-num">STEP 2</div>補助カード（任意）を1枚選ぶ</div>
+        <div class="rule-flow-arrow">↓</div>
+        <div class="rule-flow-step"><div class="step-num">STEP 3</div>「選択を確定する」を押す（相手には見えない）</div>
+        <div class="rule-flow-arrow">↓</div>
+        <div class="rule-flow-step"><div class="step-num">STEP 4</div>両者確定後、同時公開 → 補助効果発動 → 戦力比較 → 勝敗決定</div>
+        <div class="rule-flow-arrow">↓</div>
+        <div class="rule-flow-step"><div class="step-num">STEP 5</div>使ったカードは除外（再使用不可）</div>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h3>勝敗の決め方</h3>
+      <p class="rule-text">最終的な<strong>戦力値</strong>が高い方が勝ち。補助効果で戦力値が変動することがある。<br>同じ場合は引き分け。</p>
+      <div class="highlight-box">
+        運営BANが発動した場合は戦力値に関わらず<strong>自動勝利</strong>（相手がAカードの場合のみ）
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h3>プレイヤーAカード（4枚）</h3>
+      <p class="rule-text" style="margin-bottom:8px">補助効果なし。戦力値のみで戦う。全員BAN対象。</p>
+      <div class="rule-card-row">
+        <div class="rc-name">イツキ <span class="tag tag-A">A</span> <span class="rc-pow">戦力10</span></div>
+        <div class="rc-effect">最高戦力。補助なしで大抵勝てる。</div>
+        <div class="rc-note"><span class="ban-badge">BAN対象</span></div>
+      </div>
+      <div class="rule-card-row">
+        <div class="rc-name">ネ申 <span class="tag tag-A">A</span> <span class="rc-pow">戦力9</span></div>
+        <div class="rc-effect">高戦力。安定して強い。</div>
+        <div class="rc-note"><span class="ban-badge">BAN対象</span></div>
+      </div>
+      <div class="rule-card-row">
+        <div class="rc-name">MASAわん <span class="tag tag-A">A</span> <span class="rc-pow">戦力8</span></div>
+        <div class="rc-effect">中〜高戦力。使いやすい。</div>
+        <div class="rc-note"><span class="ban-badge">BAN対象</span></div>
+      </div>
+      <div class="rule-card-row">
+        <div class="rc-name">ダイヤ <span class="tag tag-A">A</span> <span class="rc-pow">戦力7</span></div>
+        <div class="rc-effect">Aの中では最弱だが、BANカードを使える唯一のA。</div>
+        <div class="rc-note"><span class="ban-badge">BAN対象</span> <span class="ban-use-badge">BAN使用可</span></div>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h3>プレイヤーBカード（4枚）</h3>
+      <p class="rule-text" style="margin-bottom:8px">メイン出し・補助出しの両方に使える。補助として出すと固有効果が発動。</p>
+      <div class="rule-card-row">
+        <div class="rc-name">ちぷ姐 <span class="tag tag-B">B</span> <span class="rc-pow">戦力7</span></div>
+        <div class="rc-effect">【補助】威嚇：相手が出したカードの戦力値以下のカードを次ターン強制。該当なしなら最低戦力を強制。</div>
+        <div class="rc-note"><span class="ban-use-badge">メイン時BAN使用可</span></div>
+      </div>
+      <div class="rule-card-row">
+        <div class="rc-name">ひろすね <span class="tag tag-B">B</span> <span class="rc-pow">戦力6</span></div>
+        <div class="rc-effect">【補助】強制引き分け：このターンの勝敗を引き分けにする。</div>
+      </div>
+      <div class="rule-card-row">
+        <div class="rc-name">まのちぃ <span class="tag tag-B">B</span> <span class="rc-pow">戦力6</span></div>
+        <div class="rc-effect">【補助】無効化：相手の補助カード効果をすべて無効にする。ただし運営BANは防げない。</div>
+        <div class="rc-note"><span class="ban-use-badge">メイン時BAN使用可</span></div>
+      </div>
+      <div class="rule-card-row">
+        <div class="rc-name">カニカフ <span class="tag tag-B">B</span> <span class="rc-pow">戦力5</span></div>
+        <div class="rc-effect">【補助】補助指定：次ターン相手の補助カードを強制指定できる。</div>
+        <div class="rc-note"><span class="ban-use-badge">メイン時BAN使用可</span></div>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h3>補助専用カード（3枚）</h3>
+      <p class="rule-text" style="margin-bottom:8px">補助枠にのみ出せる。戦力値なし。</p>
+      <div class="rule-card-row">
+        <div class="rc-name">Rosso <span class="tag tag-S">補助</span></div>
+        <div class="rc-effect">基地駐留：自分のメインカードの戦力+3。</div>
+      </div>
+      <div class="rule-card-row">
+        <div class="rc-name">Sinon <span class="tag tag-S">補助</span></div>
+        <div class="rc-effect">強いお酒：相手が男性カード（イツキ・ネ申・ダイヤ・MASAわん・ひろすね・カニカフ）なら戦力-2。</div>
+      </div>
+      <div class="rule-card-row">
+        <div class="rc-name">あちょりん <span class="tag tag-S">補助</span></div>
+        <div class="rc-effect">複製：すでに使い切ったBカードの補助効果を1つ指定して再発動。</div>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h3>トラップカード（2枚）</h3>
+      <div class="rule-card-row" style="border-color:rgba(226,75,74,0.4)">
+        <div class="rc-name">運営BAN <span class="tag tag-T">トラップ</span></div>
+        <div class="rc-effect">相手のプレイヤーAカードを無効化して自動勝利。Bカードには効果なし。まのちぃの無効化では防げない。</div>
+        <div class="rc-note" style="margin-top:6px"><span class="ban-use-badge">使用可：ダイヤ・ちぷ姐（メイン時）・まのちぃ（メイン時）・カニカフ（メイン時）</span></div>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h3>注意事項</h3>
+      <ul class="rule-text">
+        <li>1度出したカードはそのゲーム中使えない（5ラウンドで計10枚消費、3枚余る）</li>
+        <li>BANカードは補助枠に出す。使用できるのはBAN使用可メンバーがメインの時のみ</li>
+        <li>Bカードをメインに出した場合、補助効果は発動しない（補助枠に出したときだけ発動）</li>
+        <li>補助カードは任意。出さなくてもOK</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getDatabase, ref, set, get, onValue, remove, push, update, off } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
@@ -710,11 +866,13 @@ function updateHints() {
   const sh = document.getElementById('supp-hint');
   if (gameState.selMain) {
     const c = ALL_CARDS.find(x=>x.id===gameState.selMain);
+    const banInfo = c.isBanTarget ? '　BAN対象' : '';
+    const banUse = c.canBan ? '　BAN使用可' : '';
     mh.className = 'effect-hint main-active';
-    mh.innerHTML = `<div class="hint-name">${c.name}${c.pow?' (戦力'+c.pow+')':''}</div><div>${c.type==='A'?'プレイヤーAカード。補助効果なし。BAN対象'+(c.canBan?'・BAN使用可':'')+ '。':c.suppEffect?EFFECT_TEXT[c.suppEffect]:''}</div>`;
+    mh.innerHTML = `<div class="hint-name">${c.name}　戦力 ${c.pow ?? '—'}<span style="font-size:10px;opacity:0.7;margin-left:6px">${c.type==='A'?'プレイヤーA':'プレイヤーB'}${banInfo}${banUse}</span></div>`;
   } else {
     mh.className = 'effect-hint';
-    mh.textContent = 'カードを選ぶと効果が表示されます';
+    mh.textContent = 'カードを選ぶと戦力が表示されます';
   }
   if (gameState.selSupp) {
     const c = ALL_CARDS.find(x=>x.id===gameState.selSupp);
@@ -725,6 +883,15 @@ function updateHints() {
     sh.textContent = '補助カードを選ぶと効果が表示されます';
   }
 }
+
+
+// ===== RULES =====
+window.openRules = function() {
+  document.getElementById('rule-modal').classList.add('open');
+};
+window.closeRules = function() {
+  document.getElementById('rule-modal').classList.remove('open');
+};
 
 // ===== SOLO PREVIEW =====
 let isSolo = false;
