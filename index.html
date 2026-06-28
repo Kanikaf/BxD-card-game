@@ -786,11 +786,6 @@ function resolveRound(mySel, oppSel, roomData) {
   const mySupp = mySel.supp ? ALL_CARDS.find(c => c.id === mySel.supp) : null;
   const oppSupp = oppSel.supp ? ALL_CARDS.find(c => c.id === oppSel.supp) : null;
 
-  // 相手カード表示
-  const oppEl = document.getElementById('opp-played');
-  oppEl.className = 'played-card revealed';
-  oppEl.innerHTML = `<div class="pc-name">${oppMain.name}</div><div class="pc-pow">${oppMain.pow || '—'}</div><div class="pc-supp">${oppSupp ? '補助: ' + oppSupp.name : '補助なし'}</div>`;
-
   // 効果処理
   let myPow = myMain.pow || 0;
   let oppPow = oppMain.pow || 0;
@@ -907,6 +902,16 @@ function resolveRound(mySel, oppSel, roomData) {
 }
 
 function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, nfmaxMe, logs, newBFX, mySel, oppSel) {
+  // 両者カードを同時公開
+  const myEl = document.getElementById('my-played');
+  myEl.className = 'played-card revealed';
+  const mySuppC = mySel.supp ? ALL_CARDS.find(c=>c.id===mySel.supp) : null;
+  myEl.innerHTML = `<div class="pc-name">${myMain.name}</div><div class="pc-pow">${myMain.pow||'—'}</div><div class="pc-supp">${mySuppC?'補助: '+mySuppC.name:'補助なし'}</div>`;
+
+  const oppEl = document.getElementById('opp-played');
+  oppEl.className = 'played-card revealed';
+  const oppSuppC = oppSel.supp ? ALL_CARDS.find(c=>c.id===oppSel.supp) : null;
+  oppEl.innerHTML = `<div class="pc-name">${oppMain.name}</div><div class="pc-pow">${oppMain.pow||'—'}</div><div class="pc-supp">${oppSuppC?'補助: '+oppSuppC.name:'補助なし'}</div>`;
 
   let roundResult = '';
   let myWin = false;
