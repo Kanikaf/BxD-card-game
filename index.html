@@ -737,9 +737,12 @@ function handleRoomUpdate(data) {
 }
 
 function computeAndPublishResult(mySel, oppSel, round) {
-  // P1として判定処理してFirebaseに結果を書き込む
   const result = computeRoundResult(mySel, oppSel);
-  set(ref(db, `rooms/${roomId}/round_${round}/result`), result).then(() => {
+  // forcedSuppをFirebaseに書き込む
+  const writes = [set(ref(db, `rooms/${roomId}/round_${round}/result`), result)];
+  if (result.forcedSuppForP2) writes.push(set(ref(db, `rooms/${roomId}/forcedSupp_next_p2`), result.forcedSuppForP2));
+  if (result.forcedSuppForP1) writes.push(set(ref(db, `rooms/${roomId}/forcedSupp_next_p1`), result.forcedSuppForP1));
+  Promise.all(writes).then(() => {
     displayResultFromFirebase(result, mySel, oppSel);
   });
 }
@@ -781,6 +784,18 @@ function displayResultFromFirebase(result, mySel, oppSel) {
   }
   if (result.newBFX) gameState.usedBEffects = result.newBFX;
 
+  // forcedSupp: P1ならforcedSuppForP1、P2ならforcedSuppForP2を自分に適用
+  // Firebaseから次ラウンド開始時に取得する
+  if (!isSolo && roomId) {
+    const myForcedKey = `forcedSupp_next_${myRole}`;
+    get(ref(db, `rooms/${roomId}/${myForcedKey}`)).then(snap => {
+      if (snap.val()) {
+        gameState.forcedSuppOnMe = snap.val();
+        remove(ref(db, `rooms/${roomId}/${myForcedKey}`));
+      }
+    });
+  }
+
   const isLastRound = gameState.round >= 5;
   showRoundOverlay(roundResult, myMain, oppMain, myPow, oppPow, logs, isBan, mySel, oppSel, () => {
     resolving = false;
@@ -813,6 +828,7 @@ function computeRoundResult(mySel, oppSel) {
   let forceDraw = false, myBanned = false, oppBanned = false;
   let logs = [], nfmax = null, nfmaxMe = null;
   let newBFX = [...gameState.usedBEffects];
+  let forcedSuppForP1 = null, forcedSuppForP2 = null;
 
   resolvePayload = { pow0: myPow, pow1: oppPow, _base0: myPow, _base1: oppPow, forceDraw: false, nfmax: null };
 
@@ -847,7 +863,9 @@ function computeRoundResult(mySel, oppSel) {
       if (av.length) {
         const forced = av[Math.floor(Math.random()*av.length)];
         logs.push(`${isMe?'自分':'相手'}「補助指定」→ 次ターン${isMe?'相手':'自分'}の補助を「${forced.name}」に強制！`);
-        // forcedSuppOnOpponentとforcedSuppOnMeはdisplayResultFromFirebaseで処理
+        // isMe=true → 相手(P2)に強制、isMe=false → 自分(P1)に強制
+        if (isMe) forcedSuppForP2 = forced.id;
+        else forcedSuppForP1 = forced.id;
       }
     }
     if (eff==='copy') {
@@ -887,7 +905,7 @@ function computeRoundResult(mySel, oppSel) {
   else if (oppPow>myPow) roundResult='lose';
   else roundResult='draw';
 
-  return { roundResult, myPow, oppPow, logs, isBan: myBanned||oppBanned, nfmax, nfmaxMe, newBFX };
+  return { roundResult, myPow, oppPow, logs, isBan: myBanned||oppBanned, nfmax, nfmaxMe, newBFX, forcedSuppForP1, forcedSuppForP2 };
 }
 
 function renderMyPlayed(sel) {
