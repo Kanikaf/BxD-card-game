@@ -417,8 +417,9 @@
         <div class="rc-note"><span class="ban-use-badge">メイン時BAN使用可</span></div>
       </div>
       <div class="rule-card-row">
-        <div class="rc-name">ひろすね <span class="tag tag-B">B</span> <span class="rc-pow">戦力6</span></div>
-        <div class="rc-effect">【補助】仲裁：このターンの勝敗を引き分けにする。</div>
+        <div class="rc-name">ひろすね <span class="tag tag-A">A</span> <span class="rc-pow">戦力6</span></div>
+        <div class="rc-effect">BAN対象外。BAN使用可。補助効果なし。</div>
+        <div class="rc-note"><span class="ban-badge">BAN使用可</span></div>
       </div>
       <div class="rule-card-row">
         <div class="rc-name">まのちぃ <span class="tag tag-B">B</span> <span class="rc-pow">戦力6</span></div>
@@ -506,7 +507,7 @@ const ALL_CARDS = [
   { id:'masa',   name:'MASAわん', pow:8,  type:'A', male:true,  isBanTarget:false },
   { id:'daiya',  name:'ダイヤ',   pow:7,  type:'A', male:true,  isBanTarget:true, canBan:true },
   { id:'chipu',  name:'ちぷ姐',  pow:7,  type:'B', male:false, suppEffect:'threat',    canBan:true },
-  { id:'hiro',   name:'ひろすね', pow:6,  type:'B', male:true,  suppEffect:'draw' },
+  { id:'hiro',   name:'ひろすね', pow:6,  type:'A', male:true,  isBanTarget:false, canBan:true },
   { id:'mano',   name:'まのちぃ', pow:6,  type:'B', male:false, suppEffect:'nullify',   canBan:true },
   { id:'kani',   name:'カニカフ', pow:5,  type:'B', male:true,  suppEffect:'forcesupp', canBan:true },
   { id:'rosso',   name:'Rosso',    type:'S', suppEffect:'boost3' },
@@ -588,7 +589,7 @@ function renderLobby(data) {
     }
   });
   const entries = Object.entries(data).filter(([k, v]) =>
-    v && v.name && v.id && v.id !== myId && v.ts && now - v.ts <= 60000
+    v && v.name && v.id && v.id !== myId && v.ts && now - v.ts <= 60000 && !v.matched
   );
   if (entries.length === 0) {
     list.innerHTML = '<div class="lobby-empty">まだ誰も募集していません<br>下の「対戦を募集する」を押してください</div>';
@@ -644,6 +645,13 @@ window.cancelRecruit = function() {
 
 window.joinRoom = async function(key, oppName, oppId) {
   if (recruitPingInterval) { clearInterval(recruitPingInterval); recruitPingInterval = null; }
+  // 二重参加防止：エントリーがすでにmatchedになっていないか確認
+  const entrySnap = await get(ref(db, 'lobby/' + key));
+  const entryVal = entrySnap.val();
+  if (!entryVal || entryVal.matched) {
+    alert('この対戦はすでに始まっています。');
+    return;
+  }
   roomId = 'room_' + Date.now();
   myRole = 'p2';
   await set(ref(db, 'rooms/' + roomId), {
@@ -1650,6 +1658,24 @@ function soloOppSelect() {
 window.confirmSelection = async function() {
   if (!gameState.selMain) { alert('メインカードを選んでください'); return; }
   if (!gameState.selSupp) { alert('補助カードを選んでください'); return; }
+
+  // メインカード枯渇チェック：残りラウンド数分のメインカードが確保できるか
+  const remainingRounds = 5 - gameState.round; // 次ラウンド以降の回数
+  if (remainingRounds > 0) {
+    const afterUsedMain = [...gameState.usedMain, gameState.selMain];
+    const afterUsedSupp = [...gameState.usedSupp, gameState.selSupp];
+    const availableMain = ALL_CARDS.filter(c =>
+      ['A','B'].includes(c.type) &&
+      !afterUsedMain.includes(c.id) &&
+      !afterUsedSupp.includes(c.id)
+    );
+    if (availableMain.length < remainingRounds) {
+      alert(`メインカードが足りなくなります！
+残り${remainingRounds}ラウンドに対してメインに出せるカードが${availableMain.length}枚しかありません。
+補助カードの選択を見直してください。`);
+      return;
+    }
+  }
   gameState.confirmed = true;
   document.getElementById('btn-confirm').disabled = true;
   document.getElementById('game-status').textContent = isSolo ? '確定済み。' : '確定済み。相手を待っています...';
