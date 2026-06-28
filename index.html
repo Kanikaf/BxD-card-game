@@ -864,9 +864,10 @@ function computeRoundResult(mySel, oppSel) {
     if (eff==='draw') { forceDraw=true; logs.push(`${isMe?'自分':'相手'}「仲裁」発動`); }
     if (eff==='threat') { if(isMe) nfmax=oppM.pow; else nfmaxMe=myM.pow; logs.push(`${isMe?'自分':'相手'}「威嚇」→ 次ターン${isMe?'相手':'自分'}は戦力${isMe?oppM.pow:myM.pow}以下のみ`); }
     if (eff==='ban_card') {
-      const target = isMe ? oppM : myM;
+      // BANは「相手のAカード」を狙う。isMe=trueなら相手=oppM、isMe=falseなら相手=myMain（P1のカード）
+      const target = isMe ? oppM : myMain;
       if (target.isBanTarget) { if(isMe) oppBanned=true; else myBanned=true; logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} をBAN！`); }
-      else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} はBカードなのでBANが効かない（効果なし）`);
+      else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} はBAN対象外（効果なし）`);
     }
     if (eff==='forcesupp') {
       const nextUsedS = [...gameState.usedSupp, isMe?mySel.supp:oppSel.supp].filter(Boolean);
