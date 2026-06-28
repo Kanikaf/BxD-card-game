@@ -493,7 +493,7 @@ const EFFECT_TEXT = {
   boost3:    '基地駐留：自メインカードの戦力+3',
   drunk:     '強いお酒：相手が男性カードなら戦力-2（イツキ・ダイヤ・MASAわん・ひろすね・カニカフ）ネ申はコーラしか飲まないので無効',
   reset:     'リセット：使用済みの補助カード（BAN除く）を1枚選んで手札に戻す',
-  ban_card:  '運営BAN：相手のAカードを無効化して自動勝利',
+  ban_card:  'BAN：イツキ・ネ申・ダイヤの3名をBANして勝利',
   threat:    '威嚇：相手が出したカードの戦力以下のカードを次ターン強制',
   draw:      '仲裁：このターンを引き分けにする',
   nullify:   'ケツ圧：相手の補助効果を無効にする（BANは防げない）',
@@ -512,8 +512,8 @@ const ALL_CARDS = [
   { id:'rosso',   name:'Rosso',    type:'S', suppEffect:'boost3' },
   { id:'sinon',   name:'Sinon',    type:'S', suppEffect:'drunk' },
   { id:'achorin', name:'あちょりん', type:'S', suppEffect:'reset' },
-  { id:'ban1',    name:'運営BAN',  type:'T', suppEffect:'ban_card', isBan:true },
-  { id:'ban2',    name:'運営BAN',  type:'T', suppEffect:'ban_card', isBan:true },
+  { id:'ban1',    name:'BAN',  type:'T', suppEffect:'ban_card', isBan:true },
+  { id:'ban2',    name:'BAN',  type:'T', suppEffect:'ban_card', isBan:true },
 ];
 
 // ===== STATE =====
