@@ -1086,26 +1086,22 @@ function resolveRound(mySel, oppSel, roomData) {
         logs.push(`${isMe?'自分':'相手'}「カニカフ補助」→ 強制指定できる補助カードがない`);
       }
     }
-    if (eff === 'copy') {
-      // newBFXには今ラウンドのB効果も含まれる（copyとnullify以外）
-      const allBFX = [...newBFX, ...(isMe && myMain.type==='B' && myMain.suppEffect ? [myMain.suppEffect] : []), ...(!isMe && oppMain.type==='B' && oppMain.suppEffect ? [oppMain.suppEffect] : [])];
-      const targets = allBFX.filter(e=>e&&e!=='copy'&&e!=='nullify'&&e!=='ban_card');
-      if (targets.length > 0 && isMe) {
-        pendingCopyTargets = [...new Set(targets)];
-        pendingCopyCallback = (chosenEff) => {
-          if (!chosenEff) { logs.push('自分「複製」→ キャンセル'); return; }
-          const effName = EFFECT_TEXT[chosenEff] ? EFFECT_TEXT[chosenEff].split('：')[0] : chosenEff;
-          logs.push(`自分「複製」→ 「${effName}」を再発動`);
-          applyBEffect(chosenEff, myM, oppM, 0, 0, logs);
-        };
-
-      } else if (targets.length > 0 && !isMe) {
-        const chosen = targets[Math.floor(Math.random()*targets.length)];
-        const effName = EFFECT_TEXT[chosen] ? EFFECT_TEXT[chosen].split('：')[0] : chosen;
-        logs.push(`相手「複製」→ 「${effName}」を再発動`);
-        applyBEffect(chosen, oppM, myM, 0, 0, logs);
+    if (eff === 'reset') {
+      // リセット効果はモーダル選択後にusedSuppから削除（finishResolve後に処理）
+      // ここではログだけ出す
+      if (isMe) {
+        const resetTargets = gameState.usedSupp.filter(id => {
+          const c = ALL_CARDS.find(x=>x.id===id);
+          return c && c.type !== 'T';
+        });
+        if (resetTargets.length > 0) {
+          pendingResetTargets = resetTargets;
+          logs.push('自分「リセット」→ カード選択待ち...');
+        } else {
+          logs.push('自分「リセット」→ 戻せる補助カードなし');
+        }
       } else {
-        logs.push(`${isMe?'自分':'相手'}「複製」→ 再利用できる効果なし`);
+        logs.push('相手「リセット」→ 補助カードを手札に戻した');
       }
     }
     if (s.type==='B') newBFX.push(eff);
@@ -1125,11 +1121,12 @@ function resolveRound(mySel, oppSel, roomData) {
     finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, nfmaxMe, logs, newBFX, mySel, oppSel);
   };
 
-  // あちょりんリセット選択が必要な場合
-  if (pendingResetTargets.length > 0) {
+  // あちょりんリセット選択が必要な場合（ソロのみ。対人戦は確定前にhandleAchorinIfNeededで処理）
+  if (isSolo && pendingResetTargets.length > 0) {
     pendingResolveContinue = continueResolve;
     showResetModal(pendingResetTargets);
   } else {
+    pendingResetTargets = [];
     continueResolve();
   }
 }
@@ -1388,7 +1385,7 @@ function renderCardSelections() {
     return !usedS && !usedM && !isMain && !banBlocked;
   });
   const isLastRound = gameState.round >= 5;
-  const usedBCount = gameState.usedBEffects.filter(e=>e&&e!=='copy').length;
+  const usedBCount = gameState.usedBEffects.filter(e=>e&&e!=='reset').length;
 
   suppCards.forEach(c => {
     const usedS = gameState.usedSupp.includes(c.id);
@@ -1612,7 +1609,7 @@ function soloOppSelect() {
     if (c.isBan && !oppMain.canBan) return false;
     // あちょりんは使い切ったB効果がある場合のみ
     if (c.id === 'achorin') {
-      const bfx = gameState.usedBEffects.filter(e=>e&&e!=='copy'&&e!=='nullify');
+      const bfx = gameState.usedBEffects.filter(e=>e&&e!=='reset'&&e!=='nullify');
       if (bfx.length === 0) return false;
     }
     return true;
