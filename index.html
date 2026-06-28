@@ -739,7 +739,11 @@ function showAchorinModal(targets, callback) {
     item.onclick = () => {
       document.getElementById('achorin-modal').classList.remove('open');
       callback(eff);
-      if (pendingResolveContinue) { pendingResolveContinue(); pendingResolveContinue = null; }
+      const cont = pendingResolveContinue;
+      pendingResolveContinue = null;
+      pendingCopyCallback = null;
+      pendingCopyTargets = [];
+      if (cont) cont();
     };
     list.appendChild(item);
   });
@@ -748,8 +752,12 @@ function showAchorinModal(targets, callback) {
 
 window.achorinCancel = function() {
   document.getElementById('achorin-modal').classList.remove('open');
-  if (pendingCopyCallback) { pendingCopyCallback(null); pendingCopyCallback = null; }
-  if (pendingResolveContinue) { pendingResolveContinue(); pendingResolveContinue = null; }
+  if (pendingCopyCallback) { pendingCopyCallback(null); }
+  const cont = pendingResolveContinue;
+  pendingResolveContinue = null;
+  pendingCopyCallback = null;
+  pendingCopyTargets = [];
+  if (cont) cont();
 };
 
 // resolvePayload（複製効果の参照渡し用）
@@ -823,20 +831,23 @@ function resolveRound(mySel, oppSel, roomData) {
       }
     }
     if (eff === 'copy') {
-      const targets = gameState.usedBEffects.filter(e=>e&&e!=='copy'&&e!=='nullify');
+      // newBFXには今ラウンドのB効果も含まれる（copyとnullify以外）
+      const allBFX = [...newBFX, ...(isMe && myMain.type==='B' && myMain.suppEffect ? [myMain.suppEffect] : []), ...(!isMe && oppMain.type==='B' && oppMain.suppEffect ? [oppMain.suppEffect] : [])];
+      const targets = allBFX.filter(e=>e&&e!=='copy'&&e!=='nullify'&&e!=='ban_card');
       if (targets.length > 0 && isMe) {
         pendingCopyTargets = [...new Set(targets)];
         pendingCopyCallback = (chosenEff) => {
           if (!chosenEff) { logs.push('自分「複製」→ キャンセル'); return; }
           const effName = EFFECT_TEXT[chosenEff] ? EFFECT_TEXT[chosenEff].split('：')[0] : chosenEff;
           logs.push(`自分「複製」→ 「${effName}」を再発動`);
-          applyBEffect(chosenEff, myM, oppM, pow0, pow1, logs);
+          applyBEffect(chosenEff, myM, oppM, 0, 0, logs);
         };
+        logs.push(`自分「複製」→ 選択待ち...`);
       } else if (targets.length > 0 && !isMe) {
         const chosen = targets[Math.floor(Math.random()*targets.length)];
         const effName = EFFECT_TEXT[chosen] ? EFFECT_TEXT[chosen].split('：')[0] : chosen;
         logs.push(`相手「複製」→ 「${effName}」を再発動`);
-        applyBEffect(chosen, oppM, myM, pow1, pow0, logs);
+        applyBEffect(chosen, oppM, myM, 0, 0, logs);
       } else {
         logs.push(`${isMe?'自分':'相手'}「複製」→ 再利用できる効果なし`);
       }
@@ -846,6 +857,10 @@ function resolveRound(mySel, oppSel, roomData) {
 
   applySupp(mySupp, myMain, oppMain, true, myNullified);
   applySupp(oppSupp, oppMain, myMain, false, oppNullified);
+
+  // Bカードをメインで出した場合もusedBEffectsに追加
+  if (myMain.type==='B' && myMain.suppEffect) newBFX.push(myMain.suppEffect);
+  if (oppMain.type==='B' && oppMain.suppEffect) newBFX.push(oppMain.suppEffect);
 
   // あちょりんが選ばれていて使い切ったB効果がある場合はモーダルを出す
   const needAchorin = pendingCopyTargets.length > 0 && pendingCopyCallback;
@@ -1137,8 +1152,7 @@ function updateHints() {
     document.getElementById('preview-name').textContent = c.name;
     document.getElementById('preview-pow').textContent = c.pow ?? '—';
     document.getElementById('preview-effect').textContent =
-      c.type==='A' ? `プレイヤーA${banInfo}${banUse}` :
-      (c.suppEffect ? '補助: ' + EFFECT_TEXT[c.suppEffect].split('：')[0] : '');
+      c.type==='A' ? `プレイヤーA${banInfo}${banUse}` : `プレイヤーB${c.canBan?' · BAN使用可':''}`;
     if (hiddenCard) hiddenCard.style.display = 'none';
     preview.style.display = 'flex';
   } else {
