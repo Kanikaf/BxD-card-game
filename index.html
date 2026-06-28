@@ -957,7 +957,7 @@ function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppB
   // 5ラウンド終了チェック
   const isLastRound = gameState.round >= 5;
 
-  showRoundOverlay(roundResult, myMain, oppMain, myPow, oppPow, logs, myBanned || oppBanned, () => {
+  showRoundOverlay(roundResult, myMain, oppMain, myPow, oppPow, logs, myBanned || oppBanned, mySel, oppSel, () => {
     resolving = false;
     if (isLastRound) {
       endGame();
@@ -997,7 +997,7 @@ function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppB
   });
 }
 
-function showRoundOverlay(result, myMain, oppMain, myPow, oppPow, logs, isBan, callback) {
+function showRoundOverlay(result, myMain, oppMain, myPow, oppPow, logs, isBan, mySel, oppSel, callback) {
   const overlay = document.getElementById('round-overlay');
   const badge = document.getElementById('overlay-badge');
   const detail = document.getElementById('overlay-detail');
@@ -1006,8 +1006,8 @@ function showRoundOverlay(result, myMain, oppMain, myPow, oppPow, logs, isBan, c
   const labels = { win:'WIN', lose:'LOSE', draw:'DRAW' };
   badge.textContent = isBan && result!=='draw' ? (result==='win'?'BAN WIN':'BAN LOSE') : labels[result];
   badge.className = 'result-badge ' + (result==='win'?'win':result==='lose'?'lose':'draw') + (isBan?' ban':'');
-  const mySupp = mySel.supp ? ALL_CARDS.find(c=>c.id===mySel.supp) : null;
-  const oppSuppC = oppSel.supp ? ALL_CARDS.find(c=>c.id===oppSel.supp) : null;
+  const mySupp = mySel && mySel.supp ? ALL_CARDS.find(c=>c.id===mySel.supp) : null;
+  const oppSuppC = oppSel && oppSel.supp ? ALL_CARDS.find(c=>c.id===oppSel.supp) : null;
   detail.innerHTML = logs.map(l=>`<div>${l}</div>`).join('') +
     `<div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
       <div style="background:rgba(74,158,255,0.1);border:1px solid rgba(74,158,255,0.3);border-radius:6px;padding:8px">
