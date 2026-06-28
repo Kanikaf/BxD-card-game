@@ -822,7 +822,11 @@ function displayResultFromFirebase(result, mySel, oppSel) {
       gameState.selMain = null;
       gameState.selSupp = null;
       gameState.confirmed = false;
-      gameState.forcedSuppOnMe = null;
+      // forcedSuppOnMeはここでリセットしない（次ラウンドで使うため）
+      // ただし使用済みカードが指定されている場合は解除
+      if (gameState.forcedSuppOnMe && isCardUsed(gameState.forcedSuppOnMe)) {
+        gameState.forcedSuppOnMe = null;
+      }
       document.getElementById('btn-confirm').disabled = false;
       if (!isSolo && myRole === 'p1') {
         update(ref(db, 'rooms/' + roomId), { round: gameState.round });
@@ -1199,7 +1203,10 @@ function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppB
       gameState.selMain = null;
       gameState.selSupp = null;
       gameState.confirmed = false;
-      gameState.forcedSuppOnMe = null;
+      // forcedSuppOnMeはリセットしない（次ラウンドで使うため）
+      if (gameState.forcedSuppOnMe && isCardUsed(gameState.forcedSuppOnMe)) {
+        gameState.forcedSuppOnMe = null;
+      }
       document.getElementById('btn-confirm').disabled = false;
       if (!isSolo) {
         // 対人戦はdisplayResultFromFirebaseが担うのでここには来ない
@@ -1312,7 +1319,7 @@ function renderGameUI() {
     noticeHtml += `<div class="notice">⚠️ 威嚇中：戦力${gameState.forcedMax}以下のカードのみ選択可</div>`;
   if (gameState.forcedSuppOnMe !== null) {
     const fc = ALL_CARDS.find(c=>c.id===gameState.forcedSuppOnMe);
-    const forcedUsed = gameState.usedSupp.includes(gameState.forcedSuppOnMe) || gameState.usedMain.includes(gameState.forcedSuppOnMe);
+    const forcedUsed = isCardUsed(gameState.forcedSuppOnMe);
     if (forcedUsed) {
       // 使用済みなら強制指定を無効化
       gameState.forcedSuppOnMe = null;
