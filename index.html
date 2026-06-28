@@ -692,25 +692,31 @@ function handleRoomUpdate(data) {
   const oppSelection = roundData[oppKey];
 
   if (mySelection && oppSelection) {
-    // 両者確定 → 公開・判定
-    if (!gameState.confirmed) return;
-    resolveRound(mySelection, oppSelection, data);
-  } else if (mySelection && !oppSelection) {
-    if (!isSolo) {
-      document.getElementById('game-status').textContent = '相手の選択を待っています...';
+    // 両者確定 → 自分が確定済みの場合のみ判定へ進む
+    if (!gameState.confirmed) {
+      // 相手が先に確定→自分はまだ選択中。相手確定を内部で保持するだけ
+      document.getElementById('game-status').textContent = '相手は選択済みです。カードを選んでください';
       document.getElementById('game-status').className = 'status-bar waiting';
-      document.getElementById('btn-confirm').disabled = true;
-      renderMyPlayed(mySelection);
+      return;
     }
+    if (!resolving) resolveRound(mySelection, oppSelection, data);
+  } else if (mySelection && !oppSelection) {
+    // 自分確定・相手待ち
+    document.getElementById('game-status').textContent = '確定済み。相手の選択を待っています...';
+    document.getElementById('game-status').className = 'status-bar waiting';
+    document.getElementById('btn-confirm').disabled = true;
+    startTimeoutTimer();
+  } else if (!mySelection && oppSelection) {
+    // 相手確定・自分未確定
+    document.getElementById('game-status').textContent = '相手は選択済みです。カードを選んでください';
+    document.getElementById('game-status').className = 'status-bar waiting';
   }
 }
 
 function renderMyPlayed(sel) {
-  const m = ALL_CARDS.find(c => c.id === sel.main);
-  const s = sel.supp ? ALL_CARDS.find(c => c.id === sel.supp) : null;
   const el = document.getElementById('my-played');
   el.className = 'played-card revealed';
-  el.innerHTML = `<div class="pc-name">${m.name}</div><div class="pc-pow">${m.pow || '—'}</div><div class="pc-supp">${s ? '補助: ' + s.name : '補助なし'}</div>`;
+  el.innerHTML = `<div style="font-size:28px">🔒</div><div style="font-size:12px;color:var(--muted);margin-top:4px">選択済み</div><div style="font-size:11px;color:var(--muted)">相手の確定を待っています</div>`;
 }
 
 let pendingCopyTargets = [];
