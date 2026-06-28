@@ -689,15 +689,17 @@ function startRoomListener() {
 }
 
 function handleRoomUpdate(data) {
+  if (isSolo) return; // ソロモードは無視
   const myKey = myRole;
   const oppKey = myRole === 'p1' ? 'p2' : 'p1';
-  const round = data.round || 1;
 
   if (data.status === 'finished') {
     showFinalResult(data);
     return;
   }
 
+  // gameState.roundを優先（Firebase側のroundは次ラウンド更新タイミングがズレる可能性）
+  const round = gameState.round || 1;
   const roundData = data['round_' + round];
   if (!roundData) return;
 
@@ -705,20 +707,17 @@ function handleRoomUpdate(data) {
   const oppSelection = roundData[oppKey];
 
   if (mySelection && oppSelection) {
-    // 両者確定 → 自分が確定済みの場合のみ判定へ進む
     if (!gameState.confirmed) {
-      // 相手が先に確定→自分はまだ選択中。相手確定を内部で保持するだけ
+      // 相手が先に確定 → 自分はまだ選択中
       document.getElementById('game-status').textContent = '相手は選択済みです。カードを選んでください';
       document.getElementById('game-status').className = 'status-bar waiting';
       return;
     }
-    if (!resolving) resolveRound(mySelection, oppSelection, data);
-  } else if (mySelection && !oppSelection) {
-    // 自分確定・相手待ち
-    document.getElementById('game-status').textContent = '確定済み。相手の選択を待っています...';
-    document.getElementById('game-status').className = 'status-bar waiting';
-    document.getElementById('btn-confirm').disabled = true;
-    startTimeoutTimer();
+    // 両者確定 → 判定へ（二重防止）
+    if (!resolving) {
+      stopTimeoutTimer();
+      resolveRound(mySelection, oppSelection, data);
+    }
   } else if (!mySelection && oppSelection) {
     // 相手確定・自分未確定
     document.getElementById('game-status').textContent = '相手は選択済みです。カードを選んでください';
