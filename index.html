@@ -944,7 +944,7 @@ function applyBEffect(eff, myM, oppM, p0ref, p1ref, logs) {
   if (eff==='draw') { resolvePayload.forceDraw = true; logs.push(`複製「仲裁」→ 強制引き分け`); }
   if (eff==='threat') { resolvePayload.nfmax = oppM.pow; logs.push(`複製「威嚇」→ 次ターン相手は戦力${oppM.pow}以下のみ`); }
   if (eff==='forcesupp') {
-    const av = ALL_CARDS.filter(c=>['B','S','T'].includes(c.type)&&!gameState.usedSupp.includes(c.id));
+    const av = ALL_CARDS.filter(c=>['B','S','T'].includes(c.type)&&!isCardUsed(c.id));
     if(av.length){ const f=av[Math.floor(Math.random()*av.length)]; logs.push(`複製「補助指定」→ 次ターン相手の補助を「${f.name}」に強制`); }
   }
 }
@@ -1371,6 +1371,11 @@ function renderOppRemain() {
   }).join('');
 }
 
+// カードが使用済みかチェック（メイン・補助どちらで使っても使用済み）
+function isCardUsed(id) {
+  return gameState.usedMain.includes(id) || gameState.usedSupp.includes(id);
+}
+
 function renderCardSelections() {
   if (!gameState || !gameState.usedMain) return;
   const mainEl = document.getElementById('main-cards');
@@ -1382,7 +1387,7 @@ function renderCardSelections() {
   const suppCards = ALL_CARDS.filter(c => ['B','S','T'].includes(c.type));
 
   mainCards.forEach(c => {
-    const used = gameState.usedMain.includes(c.id);
+    const used = isCardUsed(c.id);
     const sel = gameState.selMain === c.id;
     const blocked = !used && gameState.forcedMax !== null && c.pow > gameState.forcedMax;
     const btn = document.createElement('button');
@@ -1394,21 +1399,17 @@ function renderCardSelections() {
   });
 
   const availableSupp = suppCards.filter(c => {
-    const usedS = gameState.usedSupp.includes(c.id);
-    const usedM = gameState.usedMain.includes(c.id);
     const isMain = gameState.selMain === c.id;
     const selMainCard = gameState.selMain ? ALL_CARDS.find(x=>x.id===gameState.selMain) : null;
     const banBlocked = c.isBan && (!selMainCard || !selMainCard.canBan);
-    return !usedS && !usedM && !isMain && !banBlocked;
+    return !isCardUsed(c.id) && !isMain && !banBlocked;
   });
   const isLastRound = gameState.round >= 5;
   const usedBCount = gameState.usedBEffects.filter(e=>e&&e!=='reset').length;
 
   suppCards.forEach(c => {
-    const usedS = gameState.usedSupp.includes(c.id);
-    const usedM = gameState.usedMain.includes(c.id);
     const isMain = gameState.selMain === c.id;
-    const used = usedS || usedM;
+    const used = isCardUsed(c.id);
     const sel = gameState.selSupp === c.id;
     const selMainCard = gameState.selMain ? ALL_CARDS.find(x=>x.id===gameState.selMain) : null;
     const banBlocked = c.isBan && (!selMainCard || !selMainCard.canBan);
@@ -1617,12 +1618,12 @@ window.startSolo = function() {
 };
 
 function soloOppSelect() {
-  const available = ALL_CARDS.filter(c => ['A','B'].includes(c.type) && !gameState.usedMain.includes(c.id));
+  const available = ALL_CARDS.filter(c => ['A','B'].includes(c.type) && !isCardUsed(c.id));
   const oppMain = available[Math.floor(Math.random() * available.length)];
   // 補助カードは必須・BANはcanBanのメインの場合のみ
   const suppPool = ALL_CARDS.filter(c => {
     if (!['B','S','T'].includes(c.type)) return false;
-    if (gameState.usedSupp.includes(c.id)) return false;
+    if (isCardUsed(c.id)) return false;
     if (c.id === oppMain.id) return false;
     if (c.isBan && !oppMain.canBan) return false;
     // あちょりんは使い切ったB効果がある場合のみ
