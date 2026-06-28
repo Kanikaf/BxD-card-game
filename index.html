@@ -1425,8 +1425,22 @@ window.confirmSelection = async function() {
     main: gameState.selMain,
     supp: gameState.selSupp || null,
   });
-  // 相手の確定を待つタイムアウトタイマー開始
-  startTimeoutTimer();
+  // 書き込み後、相手がすでに確定済みか確認
+  const snap = await get(ref(db, `rooms/${roomId}/round_${gameState.round}`));
+  const roundData = snap.val() || {};
+  const oppKey = myRole === 'p1' ? 'p2' : 'p1';
+  if (roundData[oppKey]) {
+    // 相手がすでに確定済み → 即座に判定へ
+    stopTimeoutTimer();
+    if (!resolving) resolveRound(
+      { main: gameState.selMain, supp: gameState.selSupp || null },
+      roundData[oppKey],
+      null
+    );
+  } else {
+    // 相手待ち → タイムアウト開始
+    startTimeoutTimer();
+  }
 };
 
 </script>
