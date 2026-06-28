@@ -745,13 +745,22 @@ function computeAndPublishResult(mySel, oppSel, round) {
 }
 
 function displayResultFromFirebase(result, mySel, oppSel) {
-  // Firebase結果からオーバーレイ表示
+  // resultはP1視点。P2の場合はwin/loseを反転させる
+  const isP2 = myRole === 'p2';
+
+  const p1Sel = isP2 ? oppSel : mySel;
+  const p2Sel = isP2 ? mySel : oppSel;
   const myMain = ALL_CARDS.find(c=>c.id===mySel.main);
   const oppMain = ALL_CARDS.find(c=>c.id===oppSel.main);
+
   const logs = result.logs || [];
-  const myPow = result.myPow || myMain.pow || 0;
-  const oppPow = result.oppPow || oppMain.pow || 0;
-  const roundResult = result.roundResult;
+  // P1視点の戦力値。P2なら自分=oppPow、相手=myPow
+  const myPow  = isP2 ? (result.oppPow || oppMain.pow || 0) : (result.myPow  || myMain.pow  || 0);
+  const oppPow = isP2 ? (result.myPow  || myMain.pow  || 0) : (result.oppPow || oppMain.pow || 0);
+
+  // roundResultをP1視点→自分視点に変換
+  const p1Result = result.roundResult;
+  const roundResult = p1Result === 'draw' ? 'draw' : isP2 ? (p1Result==='win'?'lose':'win') : p1Result;
   const isBan = result.isBan || false;
 
   // スコア更新
@@ -764,7 +773,12 @@ function displayResultFromFirebase(result, mySel, oppSel) {
   if (mySel.supp) gameState.usedSupp.push(mySel.supp);
   if (oppSel.main) oppUsedCards.main.push(oppSel.main);
   if (oppSel.supp) oppUsedCards.supp.push(oppSel.supp);
-  if (result.nfmaxMe !== undefined) gameState.forcedMax = result.nfmaxMe;
+  // P1視点のnfmaxMe/nfmaxをP2では逆に適用
+  if (isP2) {
+    if (result.nfmax !== undefined && result.nfmax !== null) gameState.forcedMax = result.nfmax;
+  } else {
+    if (result.nfmaxMe !== undefined && result.nfmaxMe !== null) gameState.forcedMax = result.nfmaxMe;
+  }
   if (result.newBFX) gameState.usedBEffects = result.newBFX;
 
   const isLastRound = gameState.round >= 5;
@@ -824,7 +838,7 @@ function computeRoundResult(mySel, oppSel) {
     if (eff==='ban_card') {
       const target = isMe ? oppM : myM;
       if (target.isBanTarget) { if(isMe) oppBanned=true; else myBanned=true; logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} をBAN！`); }
-      else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} はBAN対象外`);
+      else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} はBカードなのでBANが効かない（効果なし）`);
     }
     if (eff==='forcesupp') {
       const nextUsedS = [...gameState.usedSupp, isMe?mySel.supp:oppSel.supp].filter(Boolean);
@@ -983,7 +997,7 @@ function resolveRound(mySel, oppSel, roomData) {
     if (eff === 'ban_card') {
       const target = isMe ? oppM : myM;
       if (target.isBanTarget) { if(isMe) oppBanned=true; else myBanned=true; logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} をBAN！`); }
-      else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} はBAN対象外`);
+      else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} はBカードなのでBANが効かない（効果なし）`);
     }
     if (eff === 'forcesupp') {
       const nextUsedSupp = [...gameState.usedSupp, (isMe ? mySel.supp : oppSel.supp)].filter(Boolean);
