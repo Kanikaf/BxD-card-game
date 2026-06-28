@@ -793,7 +793,12 @@ function resolveRound(mySel, oppSel, roomData) {
   const applySupp = (s, myM, oppM, isMe, nullified) => {
     if (!s) return;
     const eff = s.suppEffect;
-    if (nullified && eff !== 'ban_card') { logs.push(`${isMe?'自分':'相手'}の補助「${s.name||'不明'}」→ 無効化された`); return; }
+    if (nullified && eff !== 'ban_card') {
+      const nullifier = isMe ? oppSupp : mySupp;
+      const nullifierName = nullifier ? nullifier.name : 'まのちぃ';
+      logs.push(`${isMe?'自分':'相手'}の補助「${s.name||'不明'}」→ ${nullifierName}の「ケツ圧」で無効化された`);
+      return;
+    }
     if (eff === 'boost3') { if(isMe) myPow+=3; else oppPow+=3; logs.push(`${isMe?'自分':'相手'}「基地駐留」→ 戦力+3`); }
     if (eff === 'drunk') {
       const target = isMe ? oppM : myM;
@@ -842,7 +847,7 @@ function resolveRound(mySel, oppSel, roomData) {
           logs.push(`自分「複製」→ 「${effName}」を再発動`);
           applyBEffect(chosenEff, myM, oppM, 0, 0, logs);
         };
-        logs.push(`自分「複製」→ 選択待ち...`);
+
       } else if (targets.length > 0 && !isMe) {
         const chosen = targets[Math.floor(Math.random()*targets.length)];
         const effName = EFFECT_TEXT[chosen] ? EFFECT_TEXT[chosen].split('：')[0] : chosen;
