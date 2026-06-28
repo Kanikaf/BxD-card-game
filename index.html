@@ -84,7 +84,7 @@
 
   /* VS area */
   .vs-area { background: var(--surface); border-radius: 12px; padding: 12px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
-  .played-card { border-radius: 8px; padding: 10px 6px; text-align: center; border: 1px solid var(--border); min-height: 70px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+  .played-card { border-radius: 8px; padding: 10px 6px; text-align: center; border: 1px solid var(--border); min-height: 110px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
   .played-card.revealed { border-color: var(--accent); }
   .played-card .pc-name { font-size: 13px; font-weight: 600; }
   .played-card .pc-pow { font-size: 20px; font-weight: 700; color: var(--accent2); line-height: 1; }
@@ -107,6 +107,13 @@
   .tag-B { background: var(--tagB); color: var(--tagBtext); }
   .tag-S { background: var(--tagS); color: var(--tagStext); }
   .tag-T { background: var(--tagT); color: var(--tagTtext); }
+
+  /* Card preview in VS area */
+  .card-preview { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 100%; padding: 4px 0; }
+  .preview-name { font-size: 15px; font-weight: 700; color: var(--text); text-align: center; }
+  .preview-pow { font-size: 32px; font-weight: 800; color: var(--accent2); line-height: 1; }
+  .preview-effect { font-size: 11px; color: var(--muted); text-align: center; line-height: 1.5; padding: 0 4px; }
+  .preview-supp { font-size: 11px; color: var(--success); text-align: center; margin-top: 2px; }
 
   /* Effect hint */
   .effect-hint { margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 11px; line-height: 1.6; min-height: 36px; border: 1px dashed var(--border); color: var(--muted); }
@@ -241,7 +248,15 @@
   <div id="notice-area"></div>
 
   <div class="vs-area">
-    <div class="played-card" id="my-played"><div class="pc-hidden">🂠</div></div>
+    <div class="played-card" id="my-played">
+      <div class="pc-hidden">🂠</div>
+      <div class="card-preview" id="my-preview" style="display:none">
+        <div class="preview-name" id="preview-name"></div>
+        <div class="preview-pow" id="preview-pow"></div>
+        <div class="preview-effect" id="preview-effect"></div>
+        <div class="preview-supp" id="preview-supp"></div>
+      </div>
+    </div>
     <div class="vs-label">VS</div>
     <div class="played-card" id="opp-played"><div class="pc-hidden">🂠</div></div>
   </div>
@@ -578,6 +593,7 @@ function startGame() {
     usedMain: [],
     usedSupp: [],
     forcedMax: null,
+    forcedSuppOnMe: null,
     selMain: null,
     selSupp: null,
     usedBEffects: [],
@@ -679,7 +695,29 @@ function resolveRound(mySel, oppSel, roomData) {
       if (target.isBanTarget) { if(isMe) oppBanned=true; else myBanned=true; logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} をBAN！`); }
       else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} はBAN対象外`);
     }
-    if (eff === 'forcesupp') logs.push(`${isMe?'自分':'相手'}「補助指定」→ 次ターン相手の補助カードを強制指定できます`);
+    if (eff === 'forcesupp') {
+      const availSupp = ALL_CARDS.filter(c =>
+        ['B','S','T'].includes(c.type) &&
+        !gameState.usedSupp.includes(c.id) &&
+        (isMe ? c.id !== (mySel ? mySel.main : null) : c.id !== (oppSel ? oppSel.main : null))
+      );
+      if (availSupp.length > 0) {
+        const forced = availSupp[Math.floor(Math.random() * availSupp.length)];
+        if (isMe) {
+          // 自分が使った→相手にランダム強制（Firebase経由でセット）
+          if (!isSolo) {
+            set(ref(db, `rooms/${roomId}/forcedSupp_${gameState.round+1}_opp`), forced.id);
+          }
+          logs.push(`自分「カニカフ補助」→ 次ターン相手の補助カードを「${forced.name}」に強制指定！`);
+        } else {
+          // 相手が使った→自分にランダム強制
+          gameState.forcedSuppOnMe = forced.id;
+          logs.push(`相手「カニカフ補助」→ 次ターン自分の補助カードが「${forced.name}」に強制指定された！`);
+        }
+      } else {
+        logs.push(`${isMe?'自分':'相手'}「カニカフ補助」→ 強制指定できる補助カードがない`);
+      }
+    }
     if (eff === 'copy') {
       const t = gameState.usedBEffects.filter(e=>e&&e!=='copy');
       if(t.length>0) logs.push(`${isMe?'自分':'相手'}「複製」→ 「${t[t.length-1]}」を再発動`);
@@ -724,10 +762,27 @@ function resolveRound(mySel, oppSel, roomData) {
       gameState.selMain = null;
       gameState.selSupp = null;
       gameState.confirmed = false;
+      gameState.forcedSuppOnMe = null;
       document.getElementById('btn-confirm').disabled = false;
-      renderGameUI();
-      if (!isSolo && myRole === 'p1') {
+      // Firebase側の強制補助指定を確認
+      if (!isSolo) {
+        get(ref(db, `rooms/${roomId}/forcedSupp_${gameState.round}_opp`)).then(snap => {
+          if (snap.val() && myRole !== 'p1') {
+            gameState.forcedSuppOnMe = snap.val();
+          } else if (snap.val() && myRole === 'p2') {
+            gameState.forcedSuppOnMe = snap.val();
+          }
+          renderGameUI();
+        });
+        if (myRole === 'p1') {
+          get(ref(db, `rooms/${roomId}/forcedSupp_${gameState.round}_p1`)).then(snap => {
+            if (snap.val()) gameState.forcedSuppOnMe = snap.val();
+            renderGameUI();
+          });
+        }
         update(ref(db, 'rooms/' + roomId), { round: gameState.round });
+      } else {
+        renderGameUI();
       }
     }
   });
@@ -811,12 +866,25 @@ function renderGameUI() {
 
   // notice
   const na = document.getElementById('notice-area');
-  na.innerHTML = gameState.forcedMax !== null
-    ? `<div class="notice">威嚇中：戦力${gameState.forcedMax}以下のカードのみ選択可</div>` : '';
+  let noticeHtml = '';
+  if (gameState.forcedMax !== null)
+    noticeHtml += `<div class="notice">⚠️ 威嚇中：戦力${gameState.forcedMax}以下のカードのみ選択可</div>`;
+  if (gameState.forcedSuppOnMe !== null) {
+    const fc = ALL_CARDS.find(c=>c.id===gameState.forcedSuppOnMe);
+    noticeHtml += `<div class="notice" style="border-color:var(--danger);color:var(--danger)">🎯 カニカフ効果：補助カードが「${fc?fc.name:'不明'}」に強制指定されています</div>`;
+  }
+  na.innerHTML = noticeHtml;
 
   // reset played area
   document.getElementById('my-played').className = 'played-card';
-  document.getElementById('my-played').innerHTML = '<div class="pc-hidden">🂠</div>';
+  document.getElementById('my-played').innerHTML = `
+    <div class="pc-hidden">🂠</div>
+    <div class="card-preview" id="my-preview" style="display:none">
+      <div class="preview-name" id="preview-name"></div>
+      <div class="preview-pow" id="preview-pow"></div>
+      <div class="preview-effect" id="preview-effect"></div>
+      <div class="preview-supp" id="preview-supp"></div>
+    </div>`;
   document.getElementById('opp-played').className = 'played-card';
   document.getElementById('opp-played').innerHTML = '<div class="pc-hidden">🂠</div>';
 
@@ -865,23 +933,40 @@ function renderCardSelections() {
 function updateHints() {
   const mh = document.getElementById('main-hint');
   const sh = document.getElementById('supp-hint');
+  const preview = document.getElementById('my-preview');
+  const hiddenCard = document.querySelector('#my-played .pc-hidden');
+
   if (gameState.selMain) {
     const c = ALL_CARDS.find(x=>x.id===gameState.selMain);
-    const banInfo = c.isBanTarget ? '　BAN対象' : '';
-    const banUse = c.canBan ? '　BAN使用可' : '';
+    const banInfo = c.isBanTarget ? ' · BAN対象' : '';
+    const banUse = c.canBan ? ' · BAN使用可' : '';
     mh.className = 'effect-hint main-active';
     mh.innerHTML = `<div class="hint-name">${c.name}　戦力 ${c.pow ?? '—'}<span style="font-size:10px;opacity:0.7;margin-left:6px">${c.type==='A'?'プレイヤーA':'プレイヤーB'}${banInfo}${banUse}</span></div>`;
+
+    // VSプレビュー更新
+    document.getElementById('preview-name').textContent = c.name;
+    document.getElementById('preview-pow').textContent = c.pow ?? '—';
+    document.getElementById('preview-effect').textContent =
+      c.type==='A' ? `プレイヤーA${banInfo}${banUse}` :
+      (c.suppEffect ? '補助: ' + EFFECT_TEXT[c.suppEffect].split('：')[0] : '');
+    if (hiddenCard) hiddenCard.style.display = 'none';
+    preview.style.display = 'flex';
   } else {
     mh.className = 'effect-hint';
     mh.textContent = 'カードを選ぶと戦力が表示されます';
+    if (hiddenCard) hiddenCard.style.display = 'block';
+    preview.style.display = 'none';
   }
+
   if (gameState.selSupp) {
     const c = ALL_CARDS.find(x=>x.id===gameState.selSupp);
     sh.className = 'effect-hint supp-active';
     sh.innerHTML = `<div class="hint-name">${c.name}</div><div>${EFFECT_TEXT[c.suppEffect]||''}</div>`;
+    document.getElementById('preview-supp').textContent = '補助: ' + c.name;
   } else {
     sh.className = 'effect-hint';
     sh.textContent = '補助カードを選ぶと効果が表示されます';
+    document.getElementById('preview-supp').textContent = '';
   }
 }
 
@@ -914,6 +999,7 @@ window.startSolo = function() {
     usedMain: [],
     usedSupp: [],
     forcedMax: null,
+    forcedSuppOnMe: null,
     selMain: null,
     selSupp: null,
     usedBEffects: [],
