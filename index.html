@@ -102,6 +102,7 @@
   .card-chip.sel-supp { border-color: var(--success); background: rgba(61,184,122,0.15); color: var(--success); }
   .card-chip.used { opacity: 0.3; cursor: not-allowed; text-decoration: line-through; }
   .card-chip.blocked { opacity: 0.35; cursor: not-allowed; }
+  .card-chip.warn-effect { border-color: rgba(240,160,51,0.5); color: var(--warn); }
   .tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
   .tag-A { background: var(--tagA); color: var(--tagAtext); }
   .tag-B { background: var(--tagB); color: var(--tagBtext); }
@@ -527,6 +528,7 @@ let gameState = {
   usedMain: [],
   usedSupp: [],
   forcedMax: null,
+  forcedSuppOnMe: null,
   selMain: null,
   selSupp: null,
   usedBEffects: [],
@@ -1024,6 +1026,7 @@ function renderGameUI() {
 }
 
 function renderCardSelections() {
+  if (!gameState || !gameState.usedMain) return;
   const mainEl = document.getElementById('main-cards');
   const suppEl = document.getElementById('supp-cards');
   mainEl.innerHTML = '';
@@ -1044,6 +1047,17 @@ function renderCardSelections() {
     mainEl.appendChild(btn);
   });
 
+  const availableSupp = suppCards.filter(c => {
+    const usedS = gameState.usedSupp.includes(c.id);
+    const usedM = gameState.usedMain.includes(c.id);
+    const isMain = gameState.selMain === c.id;
+    const selMainCard = gameState.selMain ? ALL_CARDS.find(x=>x.id===gameState.selMain) : null;
+    const banBlocked = c.isBan && (!selMainCard || !selMainCard.canBan);
+    return !usedS && !usedM && !isMain && !banBlocked;
+  });
+  const isLastRound = gameState.round >= 5;
+  const usedBCount = gameState.usedBEffects.filter(e=>e&&e!=='copy').length;
+
   suppCards.forEach(c => {
     const usedS = gameState.usedSupp.includes(c.id);
     const usedM = gameState.usedMain.includes(c.id);
@@ -1052,16 +1066,47 @@ function renderCardSelections() {
     const sel = gameState.selSupp === c.id;
     const selMainCard = gameState.selMain ? ALL_CARDS.find(x=>x.id===gameState.selMain) : null;
     const banBlocked = c.isBan && (!selMainCard || !selMainCard.canBan);
+    const isForcedMode = gameState.forcedSuppOnMe !== null;
+    const isForced = isForcedMode && c.id === gameState.forcedSuppOnMe;
+    const forcedBlocked = isForcedMode && !isForced;
+
+    // あちょりん：使い切ったB効果が0個なら選択不可
+    const achorinBlocked = c.id === 'achorin' && usedBCount === 0;
+
+    // ちぷ姐・カニカフ：最終ラウンドかつ他に選択肢がある場合は警告
+    const isNextTurnEffect = c.suppEffect === 'threat' || c.suppEffect === 'forcesupp';
+    const hasOtherOptions = availableSupp.filter(x => x.id !== c.id && x.suppEffect !== 'threat' && x.suppEffect !== 'forcesupp').length > 0;
+    const warnNoEffect = isLastRound && isNextTurnEffect && !isForced;
+
     const btn = document.createElement('button');
-    btn.className = 'card-chip' + (used||isMain?' used':banBlocked?' blocked':sel?' sel-supp':'');
-    btn.innerHTML = `${c.name}${c.pow?`<span style="font-size:10px;opacity:0.7"> ${c.pow}</span>`:''} <span class="tag tag-${c.type}">${c.type}</span>`;
-    btn.disabled = used || isMain || banBlocked;
-    if (!used && !isMain && !banBlocked) btn.onclick = () => { gameState.selSupp = gameState.selSupp===c.id?null:c.id; renderCardSelections(); updateHints(); };
+    const isBlocked = used || isMain || banBlocked || achorinBlocked || forcedBlocked;
+    btn.className = 'card-chip' +
+      (c.isBan ? ' is-ban' : '') +
+      (isBlocked ? ' used' : sel ? ' sel-supp' : isForced ? ' sel-supp' : warnNoEffect ? ' warn-effect' : '');
+
+    let label = c.name;
+    if (c.pow) label += `<span style="font-size:10px;opacity:0.7"> ${c.pow}</span>`;
+    label += ` <span class="tag tag-${c.type}">${c.type}</span>`;
+    if (warnNoEffect) label += ` <span style="font-size:9px;color:var(--warn)">⚠️</span>`;
+    if (achorinBlocked) label += ` <span style="font-size:9px;color:var(--muted)">効果なし</span>`;
+    if (isForced) label += ` <span style="font-size:9px;color:var(--danger)">強制</span>`;
+    btn.innerHTML = label;
+    btn.disabled = isBlocked;
+
+    if (!isBlocked) {
+      if (isForced && gameState.selSupp !== c.id) gameState.selSupp = c.id;
+      btn.onclick = () => {
+        if (isForcedMode && !isForced) return;
+        gameState.selSupp = gameState.selSupp === c.id ? null : c.id;
+        renderCardSelections(); updateHints();
+      };
+    }
     suppEl.appendChild(btn);
   });
 }
 
 function updateHints() {
+  if (!gameState || !gameState.usedMain) return;
   const mh = document.getElementById('main-hint');
   const sh = document.getElementById('supp-hint');
   const preview = document.getElementById('my-preview');
@@ -1091,8 +1136,12 @@ function updateHints() {
 
   if (gameState.selSupp) {
     const c = ALL_CARDS.find(x=>x.id===gameState.selSupp);
+    const isLastRound = gameState.round >= 5;
+    const isNextTurnEffect = c.suppEffect === 'threat' || c.suppEffect === 'forcesupp';
+    const warnMsg = isLastRound && isNextTurnEffect
+      ? '<div style="margin-top:4px;font-size:11px;color:var(--warn)">⚠️ 最終ラウンドのため次ターン効果は発動しません</div>' : '';
     sh.className = 'effect-hint supp-active';
-    sh.innerHTML = `<div class="hint-name">${c.name}</div><div>${EFFECT_TEXT[c.suppEffect]||''}</div>`;
+    sh.innerHTML = `<div class="hint-name">${c.name}</div><div>${EFFECT_TEXT[c.suppEffect]||''}</div>${warnMsg}`;
     document.getElementById('preview-supp').textContent = EFFECT_TEXT[c.suppEffect] || c.name;
   } else {
     sh.className = 'effect-hint';
