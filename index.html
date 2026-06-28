@@ -761,7 +761,11 @@ function displayResultFromFirebase(result, mySel, oppSel) {
   const myMain = ALL_CARDS.find(c=>c.id===mySel.main);
   const oppMain = ALL_CARDS.find(c=>c.id===oppSel.main);
 
-  const logs = result.logs || [];
+  // P2の場合はログの「自分」「相手」を反転
+  const rawLogs = result.logs || [];
+  const logs = isP2 ? rawLogs.map(l =>
+    l.replace(/^自分/, '___OPP___').replace(/^相手/, '自分').replace(/^___OPP___/, '相手')
+  ) : rawLogs;
   // P1視点の戦力値。P2なら自分=oppPow、相手=myPow
   const myPow  = isP2 ? (result.oppPow || oppMain.pow || 0) : (result.myPow  || myMain.pow  || 0);
   const oppPow = isP2 ? (result.myPow  || myMain.pow  || 0) : (result.oppPow || oppMain.pow || 0);
@@ -781,6 +785,12 @@ function displayResultFromFirebase(result, mySel, oppSel) {
   if (mySel.supp) gameState.usedSupp.push(mySel.supp);
   if (oppSel.main) oppUsedCards.main.push(oppSel.main);
   if (oppSel.supp) oppUsedCards.supp.push(oppSel.supp);
+  // ソロリセット効果の反映（gameState._resetChoiceがセットされている場合）
+  if (isSolo && gameState._resetChoice) {
+    gameState.usedSupp = gameState.usedSupp.filter(id => id !== gameState._resetChoice);
+    gameState.usedMain = gameState.usedMain.filter(id => id !== gameState._resetChoice);
+    gameState._resetChoice = null;
+  }
   // P1視点のnfmaxMe/nfmaxをP2では逆に適用
   if (isP2) {
     if (result.nfmax !== undefined && result.nfmax !== null) gameState.forcedMax = result.nfmax;
@@ -789,22 +799,17 @@ function displayResultFromFirebase(result, mySel, oppSel) {
   }
   if (result.newBFX) gameState.usedBEffects = result.newBFX;
 
-  // リセット効果：P1ならresetForP1、P2ならresetForP2を自分のusedSuppから削除
+  // リセット効果：P1ならresetForP1、P2ならresetForP2をusedSupp・usedMainから削除
   const myResetId = isP2 ? result.resetForP2 : result.resetForP1;
   if (myResetId) {
     gameState.usedSupp = gameState.usedSupp.filter(id => id !== myResetId);
+    gameState.usedMain = gameState.usedMain.filter(id => id !== myResetId);
   }
 
-  // forcedSupp: P1ならforcedSuppForP1、P2ならforcedSuppForP2を自分に適用
-  // Firebaseから次ラウンド開始時に取得する
-  if (!isSolo && roomId) {
-    const myForcedKey = `forcedSupp_next_${myRole}`;
-    get(ref(db, `rooms/${roomId}/${myForcedKey}`)).then(snap => {
-      if (snap.val()) {
-        gameState.forcedSuppOnMe = snap.val();
-        remove(ref(db, `rooms/${roomId}/${myForcedKey}`));
-      }
-    });
+  // forcedSupp: resultオブジェクトから直接取得（Firebase非同期を避ける）
+  const myForcedSuppId = isP2 ? result.forcedSuppForP2 : result.forcedSuppForP1;
+  if (myForcedSuppId) {
+    gameState.forcedSuppOnMe = myForcedSuppId;
   }
 
   const isLastRound = gameState.round >= 5;
@@ -994,7 +999,10 @@ function showResetModal(targets) {
       document.getElementById('achorin-modal').classList.remove('open');
       gameState._resetChoice = id;
       // ソロモードでは即座にusedSuppから削除
-      if (isSolo) gameState.usedSupp = gameState.usedSupp.filter(x=>x!==id);
+      if (isSolo) {
+        gameState.usedSupp = gameState.usedSupp.filter(x=>x!==id);
+        gameState.usedMain = gameState.usedMain.filter(x=>x!==id);
+      }
       const cont = pendingResolveContinue;
       pendingResolveContinue = null;
       pendingResetTargets = [];
@@ -1094,10 +1102,15 @@ function resolveRound(mySel, oppSel, roomData) {
       // リセット効果はモーダル選択後にusedSuppから削除（finishResolve後に処理）
       // ここではログだけ出す
       if (isMe) {
-        const resetTargets = gameState.usedSupp.filter(id => {
+        const resetFromSupp = gameState.usedSupp.filter(id => {
           const c = ALL_CARDS.find(x=>x.id===id);
           return c && c.type !== 'T';
         });
+        const resetFromMain = gameState.usedMain.filter(id => {
+          const c = ALL_CARDS.find(x=>x.id===id);
+          return c && c.type === 'B'; // メインで使ったBカードも対象
+        });
+        const resetTargets = [...new Set([...resetFromSupp, ...resetFromMain])];
         if (resetTargets.length > 0) {
           pendingResetTargets = resetTargets;
           logs.push('自分「リセット」→ カード選択待ち...');
@@ -1206,7 +1219,7 @@ function showRoundOverlay(result, myMain, oppMain, myPow, oppPow, logs, isBan, m
 
   const labels = { win:'WIN', lose:'LOSE', draw:'DRAW' };
   badge.textContent = isBan && result!=='draw' ? (result==='win'?'BAN WIN':'BAN LOSE') : labels[result];
-  badge.className = 'result-badge ' + (result==='win'?'win':result==='lose'?'lose':'draw') + (isBan?' ban':'');
+  badge.className = 'result-badge ' + (result==='win'?'win':result==='lose'?'lose':'draw');
   const mySupp = mySel && mySel.supp ? ALL_CARDS.find(c=>c.id===mySel.supp) : null;
   const oppSuppC = oppSel && oppSel.supp ? ALL_CARDS.find(c=>c.id===oppSel.supp) : null;
   detail.innerHTML = logs.map(l=>`<div>${l}</div>`).join('') +
@@ -1402,10 +1415,11 @@ function renderCardSelections() {
     const isForcedMode = gameState.forcedSuppOnMe !== null;
     const isForced = isForcedMode && c.id === gameState.forcedSuppOnMe;
     // あちょりん：使用済み補助カード（BAN除く）がなければ選択不可
-    const achorinBlocked = c.id === 'achorin' && gameState.usedSupp.filter(id => {
-      const card = ALL_CARDS.find(x=>x.id===id);
-      return card && card.type !== 'T';
-    }).length === 0;
+    const achorinUsedTargets = [
+      ...gameState.usedSupp.filter(id => { const card=ALL_CARDS.find(x=>x.id===id); return card&&card.type!=='T'; }),
+      ...gameState.usedMain.filter(id => { const card=ALL_CARDS.find(x=>x.id===id); return card&&card.type==='B'; })
+    ];
+    const achorinBlocked = c.id === 'achorin' && achorinUsedTargets.length === 0;
     const isNextTurnEffect = c.suppEffect === 'threat' || c.suppEffect === 'forcesupp';
     const warnNoEffect = isLastRound && isNextTurnEffect && !isForced;
 
@@ -1679,10 +1693,15 @@ window.confirmSelection = async function() {
 async function handleAchorinIfNeeded(mySel, oppSel, callback) {
   const mySuppC = mySel.supp ? ALL_CARDS.find(c=>c.id===mySel.supp) : null;
   if (mySuppC && mySuppC.suppEffect === 'reset') {
-    const resetTargets = gameState.usedSupp.filter(id => {
+    const resetFromSupp2 = gameState.usedSupp.filter(id => {
       const c = ALL_CARDS.find(x=>x.id===id);
       return c && c.type !== 'T';
     });
+    const resetFromMain2 = gameState.usedMain.filter(id => {
+      const c = ALL_CARDS.find(x=>x.id===id);
+      return c && c.type === 'B';
+    });
+    const resetTargets = [...new Set([...resetFromSupp2, ...resetFromMain2])];
     if (resetTargets.length > 0) {
       pendingResetTargets = resetTargets;
       pendingResolveContinue = () => { callback(mySel); };
