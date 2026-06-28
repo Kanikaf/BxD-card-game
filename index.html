@@ -543,23 +543,34 @@ function showScreen(id) {
 
 // ===== NAME =====
 window.enterLobby = function() {
-  const n = document.getElementById('name-input').value.trim();
-  if (!n) { alert('名前を入力してください'); return; }
-  myName = n;
-  myId = 'u_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
-  document.getElementById('lobby-myname').textContent = myName;
-  showScreen('lobby');
-  startLobbyListener();
+  try {
+    const n = document.getElementById('name-input').value.trim();
+    if (!n) { alert('名前を入力してください'); return; }
+    myName = n;
+    myId = 'u_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+    document.getElementById('lobby-myname').textContent = myName;
+    showScreen('lobby');
+    try { startLobbyListener(); } catch(e2) { console.error('Lobby listener error:', e2); }
+  } catch(e) {
+    console.error('enterLobby error:', e);
+    alert('エラーが発生しました: ' + e.message);
+  }
 };
 
 // ===== LOBBY =====
 function startLobbyListener() {
-  const lobbyRef = ref(db, 'lobby');
-  if (lobbyListener) off(lobbyRef);
-  lobbyListener = onValue(lobbyRef, snap => {
-    const data = snap.val() || {};
-    renderLobby(data);
-  });
+  try {
+    const lobbyRef = ref(db, 'lobby');
+    if (lobbyListener) { try { off(lobbyRef); } catch(e){} }
+    lobbyListener = onValue(lobbyRef, snap => {
+      try {
+        const data = snap.val() || {};
+        renderLobby(data);
+      } catch(e) { console.error('renderLobby error:', e); }
+    });
+  } catch(e) {
+    console.error('startLobbyListener error:', e);
+  }
 }
 
 function renderLobby(data) {
@@ -694,7 +705,6 @@ function renderMyPlayed(sel) {
   el.innerHTML = `<div class="pc-name">${m.name}</div><div class="pc-pow">${m.pow || '—'}</div><div class="pc-supp">${s ? '補助: ' + s.name : '補助なし'}</div>`;
 }
 
-let resolving = false;
 let pendingCopyTargets = [];
 let pendingCopyCallback = null;
 let pendingResolveContinue = null;
