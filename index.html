@@ -761,10 +761,10 @@ function displayResultFromFirebase(result, mySel, oppSel) {
   const myMain = ALL_CARDS.find(c=>c.id===mySel.main);
   const oppMain = ALL_CARDS.find(c=>c.id===oppSel.main);
 
-  // P2の場合はログの「自分」「相手」を反転
+  // P2の場合はログの「自分」「相手」を全体で反転
   const rawLogs = result.logs || [];
   const logs = isP2 ? rawLogs.map(l =>
-    l.replace(/^自分/, '___OPP___').replace(/^相手/, '自分').replace(/^___OPP___/, '相手')
+    l.replace(/自分/g, '___ME___').replace(/相手/g, '自分').replace(/___ME___/g, '相手')
   ) : rawLogs;
   // P1視点の戦力値。P2なら自分=oppPow、相手=myPow
   const myPow  = isP2 ? (result.oppPow || oppMain.pow || 0) : (result.myPow  || myMain.pow  || 0);
