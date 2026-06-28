@@ -887,6 +887,9 @@ function resolveRound(mySel, oppSel, roomData) {
     if (s.type==='B') newBFX.push(eff);
   };
 
+  // resolvePayloadの初期化（applyBEffect用・必ずapplySupp前に設定）
+  resolvePayload = { pow0: myPow, pow1: oppPow, _base0: myPow, _base1: oppPow, forceDraw: false, nfmax: null };
+
   applySupp(mySupp, myMain, oppMain, true, myNullified);
   applySupp(oppSupp, oppMain, myMain, false, oppNullified);
 
@@ -905,9 +908,6 @@ function resolveRound(mySel, oppSel, roomData) {
     if (resolvePayload.nfmax !== null && resolvePayload.nfmax !== undefined) nfmax = resolvePayload.nfmax;
     finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, nfmaxMe, logs, newBFX, mySel, oppSel);
   };
-
-  // resolvePayloadのベース値を記録
-  resolvePayload = { pow0: myPow, pow1: oppPow, _base0: myPow, _base1: oppPow, forceDraw: false, nfmax: null };
 
   if (needAchorin) {
     pendingResolveContinue = continueResolve;
