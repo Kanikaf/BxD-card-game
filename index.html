@@ -581,13 +581,15 @@ function startLobbyListener() {
 function renderLobby(data) {
   const list = document.getElementById('lobby-list');
   const now = Date.now();
-  // 60秒以上古いエントリーを自動削除
+  // 無効・古いエントリーを自動削除（tsなし・60秒超過・nameなし）
   Object.entries(data).forEach(([k, v]) => {
-    if (v && v.ts && now - v.ts > 60000) {
+    if (!v || !v.name || !v.ts || now - v.ts > 60000) {
       remove(ref(db, 'lobby/' + k));
     }
   });
-  const entries = Object.entries(data).filter(([k, v]) => v && v.id !== myId && v.ts && now - v.ts <= 60000);
+  const entries = Object.entries(data).filter(([k, v]) =>
+    v && v.name && v.id && v.id !== myId && v.ts && now - v.ts <= 60000
+  );
   if (entries.length === 0) {
     list.innerHTML = '<div class="lobby-empty">まだ誰も募集していません<br>下の「対戦を募集する」を押してください</div>';
     return;
