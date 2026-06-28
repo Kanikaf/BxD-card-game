@@ -580,7 +580,14 @@ function startLobbyListener() {
 
 function renderLobby(data) {
   const list = document.getElementById('lobby-list');
-  const entries = Object.entries(data).filter(([k, v]) => v && v.id !== myId);
+  const now = Date.now();
+  // 60秒以上古いエントリーを自動削除
+  Object.entries(data).forEach(([k, v]) => {
+    if (v && v.ts && now - v.ts > 60000) {
+      remove(ref(db, 'lobby/' + k));
+    }
+  });
+  const entries = Object.entries(data).filter(([k, v]) => v && v.id !== myId && v.ts && now - v.ts <= 60000);
   if (entries.length === 0) {
     list.innerHTML = '<div class="lobby-empty">まだ誰も募集していません<br>下の「対戦を募集する」を押してください</div>';
     return;
@@ -596,11 +603,17 @@ function renderLobby(data) {
   `).join('');
 }
 
+let recruitPingInterval = null;
+
 window.recruit = function() {
   const lobbyRef = ref(db, 'lobby');
   const newRef = push(lobbyRef);
   recruitKey = newRef.key;
   set(newRef, { name: myName, id: myId, ts: Date.now() });
+  // 20秒ごとにtsを更新して生存確認
+  recruitPingInterval = setInterval(() => {
+    if (recruitKey) update(ref(db, 'lobby/' + recruitKey), { ts: Date.now() });
+  }, 20000);
   document.getElementById('my-waiting').style.display = 'block';
   document.getElementById('btn-recruit').style.display = 'none';
   document.getElementById('btn-cancel').style.display = 'block';
@@ -619,6 +632,7 @@ window.recruit = function() {
 };
 
 window.cancelRecruit = function() {
+  if (recruitPingInterval) { clearInterval(recruitPingInterval); recruitPingInterval = null; }
   if (recruitKey) remove(ref(db, 'lobby/' + recruitKey));
   recruitKey = '';
   document.getElementById('my-waiting').style.display = 'none';
@@ -627,6 +641,7 @@ window.cancelRecruit = function() {
 };
 
 window.joinRoom = async function(key, oppName, oppId) {
+  if (recruitPingInterval) { clearInterval(recruitPingInterval); recruitPingInterval = null; }
   roomId = 'room_' + Date.now();
   myRole = 'p2';
   await set(ref(db, 'rooms/' + roomId), {
