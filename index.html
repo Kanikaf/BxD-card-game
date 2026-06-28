@@ -1097,33 +1097,44 @@ function renderCardSelections() {
     const banBlocked = c.isBan && (!selMainCard || !selMainCard.canBan);
     const isForcedMode = gameState.forcedSuppOnMe !== null;
     const isForced = isForcedMode && c.id === gameState.forcedSuppOnMe;
-    const forcedBlocked = isForcedMode && !isForced;
-
-    // あちょりん：使い切ったB効果が0個なら選択不可
     const achorinBlocked = c.id === 'achorin' && usedBCount === 0;
-
-    // ちぷ姐・カニカフ：最終ラウンドかつ他に選択肢がある場合は警告
     const isNextTurnEffect = c.suppEffect === 'threat' || c.suppEffect === 'forcesupp';
-    const hasOtherOptions = availableSupp.filter(x => x.id !== c.id && x.suppEffect !== 'threat' && x.suppEffect !== 'forcesupp').length > 0;
     const warnNoEffect = isLastRound && isNextTurnEffect && !isForced;
 
+    // 強制指定モードのとき：指定カード以外はすべてブロック
+    // ただし指定カード自体がused/isMainでも表示は「強制」で残す
+    let isBlocked, showUsed;
+    if (isForcedMode) {
+      if (isForced) {
+        isBlocked = false; // 強制指定カードは必ず選択可能
+        showUsed = false;
+      } else {
+        isBlocked = true;  // それ以外はすべてブロック
+        showUsed = true;
+      }
+    } else {
+      isBlocked = used || isMain || banBlocked || achorinBlocked;
+      showUsed = used || isMain || achorinBlocked;
+    }
+
     const btn = document.createElement('button');
-    const isBlocked = used || isMain || banBlocked || achorinBlocked || forcedBlocked;
     btn.className = 'card-chip' +
       (c.isBan ? ' is-ban' : '') +
-      (isBlocked ? ' used' : sel ? ' sel-supp' : isForced ? ' sel-supp' : warnNoEffect ? ' warn-effect' : '');
+      (showUsed ? ' used' : isBlocked ? ' blocked' : sel||isForced ? ' sel-supp' : warnNoEffect ? ' warn-effect' : '');
 
     let label = c.name;
     if (c.pow) label += `<span style="font-size:10px;opacity:0.7"> ${c.pow}</span>`;
     label += ` <span class="tag tag-${c.type}">${c.type}</span>`;
     if (warnNoEffect) label += ` <span style="font-size:9px;color:var(--warn)">⚠️</span>`;
-    if (achorinBlocked) label += ` <span style="font-size:9px;color:var(--muted)">効果なし</span>`;
+    if (achorinBlocked && !isForcedMode) label += ` <span style="font-size:9px;color:var(--muted)">効果なし</span>`;
     if (isForced) label += ` <span style="font-size:9px;color:var(--danger)">強制</span>`;
     btn.innerHTML = label;
     btn.disabled = isBlocked;
 
     if (!isBlocked) {
-      if (isForced && gameState.selSupp !== c.id) gameState.selSupp = c.id;
+      if (isForced && gameState.selSupp !== c.id) {
+        gameState.selSupp = c.id;
+      }
       btn.onclick = () => {
         if (isForcedMode && !isForced) return;
         gameState.selSupp = gameState.selSupp === c.id ? null : c.id;
