@@ -784,7 +784,8 @@ function resolveRound(mySel, oppSel, roomData) {
   let oppPow = oppMain.pow || 0;
   let forceDraw = false, myBanned = false, oppBanned = false;
   let logs = [];
-  let nfmax = null;
+  let nfmax = null;    // 相手への威嚇（次ターン相手の戦力上限）
+  let nfmaxMe = null;  // 自分への威嚇（次ターン自分の戦力上限）
   let newBFX = [...gameState.usedBEffects];
 
   const myNullified = oppSupp && oppSupp.suppEffect === 'nullify';
@@ -806,7 +807,7 @@ function resolveRound(mySel, oppSel, roomData) {
       else logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${target.name} は効果なし`);
     }
     if (eff === 'draw') { forceDraw = true; logs.push(`${isMe?'自分':'相手'}「強制引き分け」発動`); }
-    if (eff === 'threat') { if(isMe) nfmax = oppM.pow; logs.push(`${isMe?'自分':'相手'}「威嚇」→ 次ターン相手は戦力${oppM.pow}以下のカードのみ`); }
+    if (eff === 'threat') { if(isMe) nfmax = oppM.pow; else nfmaxMe = myM.pow; logs.push(`${isMe?'自分':'相手'}「威嚇」→ 次ターン${isMe?'相手':'自分'}は戦力${isMe?oppM.pow:myM.pow}以下のカードのみ`); }
     if (eff === 'ban_card') {
       const target = isMe ? oppM : myM;
       if (target.isBanTarget) { if(isMe) oppBanned=true; else myBanned=true; logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} をBAN！`); }
@@ -876,7 +877,7 @@ function resolveRound(mySel, oppSel, roomData) {
     oppPow += (resolvePayload.pow1 || 0) - (resolvePayload._base1 || 0);
     if (resolvePayload.forceDraw) forceDraw = true;
     if (resolvePayload.nfmax !== null && resolvePayload.nfmax !== undefined) nfmax = resolvePayload.nfmax;
-    finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, logs, newBFX, mySel, oppSel);
+    finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, nfmaxMe, logs, newBFX, mySel, oppSel);
   };
 
   // resolvePayloadのベース値を記録
@@ -890,7 +891,7 @@ function resolveRound(mySel, oppSel, roomData) {
   }
 }
 
-function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, logs, newBFX, mySel, oppSel) {
+function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, nfmaxMe, logs, newBFX, mySel, oppSel) {
 
   let roundResult = '';
   let myWin = false;
@@ -910,7 +911,11 @@ function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppB
   gameState.results.push(roundResult);
   gameState.usedMain.push(mySel.main);
   if (mySel.supp) gameState.usedSupp.push(mySel.supp);
-  gameState.forcedMax = nfmax;
+  gameState.forcedMax = nfmaxMe;  // 自分への威嚇制限
+  // 相手への威嚇をFirebase経由で送信
+  if (nfmax !== null && !isSolo && roomId) {
+    set(ref(db, `rooms/${roomId}/threat_${gameState.round+1}_opp`), nfmax);
+  }
   gameState.usedBEffects = newBFX;
 
   // 5ラウンド終了チェック
@@ -929,6 +934,11 @@ function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppB
       document.getElementById('btn-confirm').disabled = false;
       // Firebase側の強制補助指定を確認
       if (!isSolo) {
+        // 威嚇制限を確認
+        get(ref(db, `rooms/${roomId}/threat_${gameState.round}_opp`)).then(snap => {
+          if (snap.val() !== null) gameState.forcedMax = snap.val();
+          renderGameUI();
+        });
         get(ref(db, `rooms/${roomId}/forcedSupp_${gameState.round}_opp`)).then(snap => {
           if (snap.val() && myRole !== 'p1') {
             gameState.forcedSuppOnMe = snap.val();
