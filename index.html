@@ -167,6 +167,18 @@
   .timeout-sub { font-size: 14px; color: var(--muted); line-height: 1.7; }
   .timeout-timer { font-size: 32px; font-weight: 800; color: var(--warn); }
 
+  /* ===== ACHORIN MODAL ===== */
+  .achorin-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 250; display: none; flex-direction: column; justify-content: center; align-items: center; padding: 24px; gap: 16px; }
+  .achorin-modal.open { display: flex; }
+  .achorin-title { font-size: 16px; font-weight: 700; color: var(--success); text-align: center; }
+  .achorin-sub { font-size: 12px; color: var(--muted); text-align: center; }
+  .achorin-list { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 340px; }
+  .achorin-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer; transition: all 0.15s; }
+  .achorin-item:active { transform: scale(0.97); }
+  .achorin-item:hover { border-color: var(--success); }
+  .achorin-item .ai-name { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .achorin-item .ai-effect { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
   /* ===== RULE MODAL ===== */
   .rule-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 200; display: none; flex-direction: column; }
   .rule-modal.open { display: flex; }
@@ -319,6 +331,14 @@
 
 <!-- Firebase -->
 
+<!-- ===== ACHORIN MODAL ===== -->
+<div class="achorin-modal" id="achorin-modal">
+  <div class="achorin-title">複製 — 効果を選んでください</div>
+  <div class="achorin-sub">使い切ったBカードの補助効果を1つ選んで再発動します</div>
+  <div class="achorin-list" id="achorin-list"></div>
+  <button class="btn btn-secondary btn-sm" onclick="achorinCancel()">キャンセル（効果なし）</button>
+</div>
+
 <!-- ===== RULE MODAL ===== -->
 <div class="rule-modal" id="rule-modal">
   <div class="rule-modal-header">
@@ -374,8 +394,7 @@
       </div>
       <div class="rule-card-row">
         <div class="rc-name">MASAわん <span class="tag tag-A">A</span> <span class="rc-pow">戦力8</span></div>
-        <div class="rc-effect">中〜高戦力。使いやすい。</div>
-        <div class="rc-note"><span class="ban-badge">BAN対象</span></div>
+        <div class="rc-effect">中〜高戦力。使いやすい。BAN対象外。</div>
       </div>
       <div class="rule-card-row">
         <div class="rc-name">ダイヤ <span class="tag tag-A">A</span> <span class="rc-pow">戦力7</span></div>
@@ -468,7 +487,7 @@ const db = getDatabase(app);
 const EFFECT_TEXT = {
   boost3:    '基地駐留：自メインカードの戦力+3',
   drunk:     '強いお酒：相手が男性カードなら戦力-2（イツキ・ネ申・ダイヤ・MASAわん・ひろすね・カニカフ）',
-  copy:      '複製：使い切ったBカードの補助効果を1つ再発動',
+  copy:      '複製：このゲームで使い切ったBカードの補助効果を1つ選んで再発動',
   ban_card:  '運営BAN：相手のAカードを無効化して自動勝利',
   threat:    '威嚇：相手が出したカードの戦力以下のカードを次ターン強制',
   draw:      '仲裁：このターンを引き分けにする',
@@ -479,7 +498,7 @@ const EFFECT_TEXT = {
 const ALL_CARDS = [
   { id:'itsuki', name:'イツキ',   pow:10, type:'A', male:false, isBanTarget:true },
   { id:'neshin', name:'ネ申',     pow:9,  type:'A', male:true,  isBanTarget:true },
-  { id:'masa',   name:'MASAわん', pow:8,  type:'A', male:true,  isBanTarget:true },
+  { id:'masa',   name:'MASAわん', pow:8,  type:'A', male:true,  isBanTarget:false },
   { id:'daiya',  name:'ダイヤ',   pow:7,  type:'A', male:true,  isBanTarget:true, canBan:true },
   { id:'chipu',  name:'ちぷ姐',  pow:7,  type:'B', male:false, suppEffect:'threat',    canBan:true },
   { id:'hiro',   name:'ひろすね', pow:6,  type:'B', male:true,  suppEffect:'draw' },
@@ -674,6 +693,55 @@ function renderMyPlayed(sel) {
 }
 
 let resolving = false;
+let pendingCopyTargets = [];
+let pendingCopyCallback = null;
+let pendingResolveContinue = null;
+
+// 個別効果を再発動するヘルパー（あちょりん複製用）
+function applyBEffect(eff, myM, oppM, p0ref, p1ref, logs) {
+  if (eff==='boost3') { resolvePayload.pow0 += 3; logs.push(`複製「基地駐留」→ 戦力+3`); }
+  if (eff==='drunk') { if(oppM.male){ resolvePayload.pow1 -= 2; logs.push(`複製「強いお酒」→ ${oppM.name} 戦力-2`); } else logs.push(`複製「強いお酒」→ ${oppM.name} は効果なし`); }
+  if (eff==='draw') { resolvePayload.forceDraw = true; logs.push(`複製「仲裁」→ 強制引き分け`); }
+  if (eff==='threat') { resolvePayload.nfmax = oppM.pow; logs.push(`複製「威嚇」→ 次ターン相手は戦力${oppM.pow}以下のみ`); }
+  if (eff==='forcesupp') {
+    const av = ALL_CARDS.filter(c=>['B','S','T'].includes(c.type)&&!gameState.usedSupp.includes(c.id));
+    if(av.length){ const f=av[Math.floor(Math.random()*av.length)]; logs.push(`複製「補助指定」→ 次ターン相手の補助を「${f.name}」に強制`); }
+  }
+}
+
+// あちょりんモーダル
+function showAchorinModal(targets, callback) {
+  const list = document.getElementById('achorin-list');
+  list.innerHTML = '';
+  const unique = [...new Set(targets)];
+  unique.forEach(eff => {
+    const fullText = EFFECT_TEXT[eff] || eff;
+    const parts = fullText.split('：');
+    const name = parts[0];
+    const desc = parts.slice(1).join('：');
+    const item = document.createElement('div');
+    item.className = 'achorin-item';
+    item.innerHTML = `<div class="ai-name">${name}</div><div class="ai-effect">${desc}</div>`;
+    item.onclick = () => {
+      document.getElementById('achorin-modal').classList.remove('open');
+      callback(eff);
+      if (pendingResolveContinue) { pendingResolveContinue(); pendingResolveContinue = null; }
+    };
+    list.appendChild(item);
+  });
+  document.getElementById('achorin-modal').classList.add('open');
+}
+
+window.achorinCancel = function() {
+  document.getElementById('achorin-modal').classList.remove('open');
+  if (pendingCopyCallback) { pendingCopyCallback(null); pendingCopyCallback = null; }
+  if (pendingResolveContinue) { pendingResolveContinue(); pendingResolveContinue = null; }
+};
+
+// resolvePayload（複製効果の参照渡し用）
+let resolvePayload = {};
+
+let resolving = false;
 function resolveRound(mySel, oppSel, roomData) {
   if (resolving) return;
   resolving = true;
@@ -741,15 +809,52 @@ function resolveRound(mySel, oppSel, roomData) {
       }
     }
     if (eff === 'copy') {
-      const t = gameState.usedBEffects.filter(e=>e&&e!=='copy');
-      if(t.length>0) logs.push(`${isMe?'自分':'相手'}「複製」→ 「${t[t.length-1]}」を再発動`);
-      else logs.push(`${isMe?'自分':'相手'}「複製」→ 再利用できる効果なし`);
+      const targets = gameState.usedBEffects.filter(e=>e&&e!=='copy'&&e!=='nullify');
+      if (targets.length > 0 && isMe) {
+        pendingCopyTargets = [...new Set(targets)];
+        pendingCopyCallback = (chosenEff) => {
+          if (!chosenEff) { logs.push('自分「複製」→ キャンセル'); return; }
+          const effName = EFFECT_TEXT[chosenEff] ? EFFECT_TEXT[chosenEff].split('：')[0] : chosenEff;
+          logs.push(`自分「複製」→ 「${effName}」を再発動`);
+          applyBEffect(chosenEff, myM, oppM, pow0, pow1, logs);
+        };
+      } else if (targets.length > 0 && !isMe) {
+        const chosen = targets[Math.floor(Math.random()*targets.length)];
+        const effName = EFFECT_TEXT[chosen] ? EFFECT_TEXT[chosen].split('：')[0] : chosen;
+        logs.push(`相手「複製」→ 「${effName}」を再発動`);
+        applyBEffect(chosen, oppM, myM, pow1, pow0, logs);
+      } else {
+        logs.push(`${isMe?'自分':'相手'}「複製」→ 再利用できる効果なし`);
+      }
     }
     if (s.type==='B') newBFX.push(eff);
   };
 
   applySupp(mySupp, myMain, oppMain, true, myNullified);
   applySupp(oppSupp, oppMain, myMain, false, oppNullified);
+
+  // あちょりんが選ばれていて使い切ったB効果がある場合はモーダルを出す
+  const needAchorin = pendingCopyTargets.length > 0 && pendingCopyCallback;
+  const continueResolve = () => {
+    // resolvePayloadから反映
+    if (resolvePayload.pow0 !== myPow || resolvePayload.pow1 !== oppPow) {
+      myPow = resolvePayload.pow0;
+      oppPow = resolvePayload.pow1;
+    }
+    if (resolvePayload.forceDraw) forceDraw = true;
+    if (resolvePayload.nfmax !== null) nfmax = resolvePayload.nfmax;
+    finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, logs, newBFX, mySel, oppSel);
+  };
+
+  if (needAchorin) {
+    pendingResolveContinue = continueResolve;
+    showAchorinModal(pendingCopyTargets, pendingCopyCallback);
+  } else {
+    continueResolve();
+  }
+}
+
+function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, logs, newBFX, mySel, oppSel) {
 
   let roundResult = '';
   let myWin = false;
