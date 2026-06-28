@@ -225,13 +225,14 @@
 <div class="screen" id="screen-game">
   <div class="game-header">
     <div class="round-info" id="round-info">ラウンド 1 / 5</div>
-    <div style="display:flex;align-items:center;gap:8px">
+    <div style="display:flex;align-items:center;gap:6px">
       <div class="score-display">
         <span class="score-me" id="score-me">自分 0勝</span>
         <span style="color:var(--muted)">|</span>
         <span class="score-opp" id="score-opp">相手 0勝</span>
       </div>
       <button class="btn btn-secondary btn-sm" onclick="openRules()" style="font-size:11px;padding:4px 8px;white-space:nowrap">ルール</button>
+      <button class="btn btn-secondary btn-sm" onclick="confirmLeave()" style="font-size:11px;padding:4px 8px;white-space:nowrap;color:var(--danger);border-color:rgba(226,75,74,0.4)">退出</button>
     </div>
   </div>
 
@@ -884,6 +885,12 @@ function updateHints() {
   }
 }
 
+
+// ===== LEAVE =====
+window.confirmLeave = function() {
+  const msg = isSolo ? 'ソロプレビューを終了してロビーに戻りますか？' : '対戦を中断してロビーに戻りますか？（相手の不戦勝になります）';
+  if (confirm(msg)) backToLobby();
+};
 
 // ===== RULES =====
 window.openRules = function() {
