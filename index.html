@@ -84,7 +84,7 @@
 
   /* VS area */
   .vs-area { background: var(--surface); border-radius: 12px; padding: 12px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
-  .played-card { border-radius: 8px; padding: 10px 6px; text-align: center; border: 1px solid var(--border); min-height: 110px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+  .played-card { border-radius: 8px; padding: 10px 6px; text-align: center; border: 1px solid var(--border); min-height: 120px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
   .played-card.revealed { border-color: var(--accent); }
   .played-card .pc-name { font-size: 13px; font-weight: 600; }
   .played-card .pc-pow { font-size: 20px; font-weight: 700; color: var(--accent2); line-height: 1; }
@@ -280,7 +280,13 @@
       </div>
     </div>
     <div class="vs-label">VS</div>
-    <div class="played-card" id="opp-played"><div class="pc-hidden">🂠</div></div>
+    <div class="played-card" id="opp-played">
+      <div class="pc-hidden">🂠</div>
+      <div id="opp-remain" style="display:none;width:100%;padding:4px 2px">
+        <div style="font-size:10px;color:var(--warn);font-weight:600;margin-bottom:4px;text-align:center">相手の残り手札</div>
+        <div id="opp-remain-list" style="display:flex;flex-wrap:wrap;gap:3px;justify-content:center"></div>
+      </div>
+    </div>
   </div>
 
   <div class="status-bar waiting" id="game-status">カードを選んでください</div>
@@ -534,6 +540,7 @@ let gameState = {
   usedBEffects: [],
   confirmed: false,
 };
+let oppUsedCards = { main: [], supp: [] };
 
 // ===== SCREENS =====
 function showScreen(id) {
@@ -651,6 +658,7 @@ function startGame() {
     usedBEffects: [],
     confirmed: false,
   };
+  oppUsedCards = { main: [], supp: [] };
   showScreen('game');
   renderGameUI();
   startRoomListener();
@@ -914,6 +922,8 @@ function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppB
   gameState.results.push(roundResult);
   gameState.usedMain.push(mySel.main);
   if (mySel.supp) gameState.usedSupp.push(mySel.supp);
+  if (oppSel.main) oppUsedCards.main.push(oppSel.main);
+  if (oppSel.supp) oppUsedCards.supp.push(oppSel.supp);
   gameState.forcedMax = nfmaxMe;  // 自分への威嚇制限
   // 相手への威嚇をFirebase経由で送信
   if (nfmax !== null && !isSolo && roomId) {
@@ -973,7 +983,21 @@ function showRoundOverlay(result, myMain, oppMain, myPow, oppPow, logs, isBan, c
   const labels = { win:'WIN', lose:'LOSE', draw:'DRAW' };
   badge.textContent = isBan && result!=='draw' ? (result==='win'?'BAN WIN':'BAN LOSE') : labels[result];
   badge.className = 'result-badge ' + (result==='win'?'win':result==='lose'?'lose':'draw') + (isBan?' ban':'');
-  detail.innerHTML = logs.map(l=>`<div>${l}</div>`).join('') + `<div style="margin-top:8px">${myMain.name}(${Number(myPow)||0}) vs ${oppMain.name}(${Number(oppPow)||0})</div>`;
+  const mySupp = mySel.supp ? ALL_CARDS.find(c=>c.id===mySel.supp) : null;
+  const oppSuppC = oppSel.supp ? ALL_CARDS.find(c=>c.id===oppSel.supp) : null;
+  detail.innerHTML = logs.map(l=>`<div>${l}</div>`).join('') +
+    `<div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+      <div style="background:rgba(74,158,255,0.1);border:1px solid rgba(74,158,255,0.3);border-radius:6px;padding:8px">
+        <div style="color:var(--accent2);font-weight:600;margin-bottom:4px">自分</div>
+        <div>メイン: ${myMain.name} (${Number(myPow)||0})</div>
+        <div style="color:var(--muted)">補助: ${mySupp?mySupp.name:'なし'}</div>
+      </div>
+      <div style="background:rgba(240,160,51,0.1);border:1px solid rgba(240,160,51,0.3);border-radius:6px;padding:8px">
+        <div style="color:var(--warn);font-weight:600;margin-bottom:4px">相手</div>
+        <div>メイン: ${oppMain.name} (${Number(oppPow)||0})</div>
+        <div style="color:var(--muted)">補助: ${oppSuppC?oppSuppC.name:'なし'}</div>
+      </div>
+    </div>`;
   score.textContent = `${myName} ${gameState.scores.me} — ${gameState.scores.opp}`;
   overlay.style.display = 'flex';
   window._overlayCallback = callback;
@@ -1077,6 +1101,36 @@ function renderGameUI() {
 
   renderCardSelections();
   updateHints();
+  renderOppRemain();
+}
+
+function renderOppRemain() {
+  const remainEl = document.getElementById('opp-remain');
+  const listEl = document.getElementById('opp-remain-list');
+  if (!remainEl || !listEl) return;
+
+  // 相手の使用済みカード（自分のusedMainとusedSuppから推測はできないので
+  // ソロモード：AIのusedを追跡、対戦：公開情報のみ表示）
+  // 全メインカードのうち使用済みでないものを「残り手札候補」として表示
+  const allMain = ALL_CARDS.filter(c => ['A','B'].includes(c.type));
+  // 自分のusedMainは除外（両者同じデッキなので相手のusedMainは別途追跡が必要）
+  // ここではoppUsedMainを使う
+  const oppRemainMain = allMain.filter(c => !oppUsedCards.main.includes(c.id));
+  const oppRemainSupp = ALL_CARDS.filter(c =>
+    ['S','T'].includes(c.type) && !oppUsedCards.supp.includes(c.id)
+  );
+  const oppRemain = [...oppRemainMain, ...oppRemainSupp];
+
+  if (oppRemain.length === 0 || gameState.round <= 1) {
+    remainEl.style.display = 'none';
+    return;
+  }
+
+  remainEl.style.display = 'block';
+  listEl.innerHTML = oppRemain.map(c => {
+    const color = c.type==='A'?'#378ADD':c.type==='B'?'#7F77DD':c.type==='S'?'#1D9E75':'#E24B4A';
+    return `<span style="font-size:10px;padding:2px 5px;border-radius:4px;border:1px solid ${color};color:${color};white-space:nowrap">${c.name}${c.pow?` ${c.pow}`:''}</span>`;
+  }).join('');
 }
 
 function renderCardSelections() {
@@ -1301,6 +1355,7 @@ window.startSolo = function() {
   isSolo = true;
   myName = document.getElementById('lobby-myname').textContent || 'プレイヤー';
   myRole = 'p1';
+  oppUsedCards = { main: [], supp: [] };
   gameState = {
     round: 1,
     scores: { me: 0, opp: 0, draw: 0 },
