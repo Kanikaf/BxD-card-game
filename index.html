@@ -847,9 +847,13 @@ function computeRoundResult(mySel, oppSel) {
   const myNullified = oppSupp && oppSupp.suppEffect === 'nullify';
   const oppNullified = mySupp && mySupp.suppEffect === 'nullify';
 
-  const applyS = (s, myM, oppM, isMe, nullified) => {
+  const applyS = (s, isMe, nullified) => {
     if (!s) return;
     const eff = s.suppEffect;
+    // isMe=true: 自分(P1)が使う → 相手(P2)=oppMain が対象
+    // isMe=false: 相手(P2)が使う → 自分(P1)=myMain が対象
+    const attackTarget = isMe ? oppMain : myMain;
+    const selfCard = isMe ? myMain : oppMain;
     if (nullified && eff !== 'ban_card') {
       const nullifier = isMe ? oppSupp : mySupp;
       logs.push(`${isMe?'自分':'相手'}の補助「${s.name}」→ ${nullifier?nullifier.name:'まのちぃ'}の「ケツ圧」で無効化された`);
@@ -857,26 +861,25 @@ function computeRoundResult(mySel, oppSel) {
     }
     if (eff==='boost3') { if(isMe) myPow+=3; else oppPow+=3; logs.push(`${isMe?'自分':'相手'}「基地駐留」→ 戦力+3`); }
     if (eff==='drunk') {
-      const target = isMe ? oppM : myM;
-      if (target.male) { if(isMe) oppPow-=2; else myPow-=2; logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${target.name} 戦力-2`); }
-      else logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${target.name} は効果なし`);
+      if (attackTarget.male) { if(isMe) oppPow-=2; else myPow-=2; logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${attackTarget.name} 戦力-2`); }
+      else logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${attackTarget.name} は効果なし`);
     }
     if (eff==='draw') { forceDraw=true; logs.push(`${isMe?'自分':'相手'}「仲裁」発動`); }
-    if (eff==='threat') { if(isMe) nfmax=oppM.pow; else nfmaxMe=myM.pow; logs.push(`${isMe?'自分':'相手'}「威嚇」→ 次ターン${isMe?'相手':'自分'}は戦力${isMe?oppM.pow:myM.pow}以下のみ`); }
+    if (eff==='threat') {
+      if(isMe) nfmax=attackTarget.pow; else nfmaxMe=attackTarget.pow;
+      logs.push(`${isMe?'自分':'相手'}「威嚇」→ 次ターン${isMe?'相手':'自分'}は戦力${attackTarget.pow}以下のみ`);
+    }
     if (eff==='ban_card') {
-      // BANは「相手のAカード」を狙う。isMe=trueなら相手=oppM、isMe=falseなら相手=myMain（P1のカード）
-      const target = isMe ? oppM : myMain;
-      if (target.isBanTarget) { if(isMe) oppBanned=true; else myBanned=true; logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} をBAN！`); }
-      else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} はBAN対象外（効果なし）`);
+      if (attackTarget.isBanTarget) { if(isMe) oppBanned=true; else myBanned=true; logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${attackTarget.name} をBAN！`); }
+      else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${attackTarget.name} はBAN対象外（効果なし）`);
     }
     if (eff==='forcesupp') {
-      const nextUsedS = [...gameState.usedSupp, isMe?mySel.supp:oppSel.supp].filter(Boolean);
-      const nextUsedM = [...gameState.usedMain, isMe?mySel.main:oppSel.main].filter(Boolean);
-      const av = ALL_CARDS.filter(c=>['B','S'].includes(c.type)&&!nextUsedS.includes(c.id)&&!nextUsedM.includes(c.id));
+      const usedSuppNow = [...gameState.usedSupp, isMe?mySel.supp:oppSel.supp].filter(Boolean);
+      const usedMainNow = [...gameState.usedMain, isMe?mySel.main:oppSel.main].filter(Boolean);
+      const av = ALL_CARDS.filter(c=>['B','S'].includes(c.type)&&!usedSuppNow.includes(c.id)&&!usedMainNow.includes(c.id));
       if (av.length) {
         const forced = av[Math.floor(Math.random()*av.length)];
         logs.push(`${isMe?'自分':'相手'}「補助指定」→ 次ターン${isMe?'相手':'自分'}の補助を「${forced.name}」に強制！`);
-        // isMe=true → 相手(P2)に強制、isMe=false → 自分(P1)に強制
         if (isMe) forcedSuppForP2 = forced.id;
         else forcedSuppForP1 = forced.id;
       }
@@ -901,8 +904,8 @@ function computeRoundResult(mySel, oppSel) {
   if (myMain.type==='B' && myMain.suppEffect) newBFX.push(myMain.suppEffect);
   if (oppMain.type==='B' && oppMain.suppEffect) newBFX.push(oppMain.suppEffect);
 
-  applyS(mySupp, myMain, oppMain, true, myNullified);
-  applyS(oppSupp, oppMain, myMain, false, oppNullified);
+  applyS(mySupp, true, myNullified);
+  applyS(oppSupp, false, oppNullified);
 
   let roundResult = '';
   if (myBanned&&oppBanned) roundResult='draw';
