@@ -691,16 +691,12 @@ function startRoomListener() {
 }
 
 function handleRoomUpdate(data) {
-  if (isSolo) return; // ソロモードは無視
+  if (isSolo) return;
   const myKey = myRole;
   const oppKey = myRole === 'p1' ? 'p2' : 'p1';
 
-  if (data.status === 'finished') {
-    showFinalResult(data);
-    return;
-  }
+  if (data.status === 'finished') { showFinalResult(data); return; }
 
-  // gameState.roundを優先（Firebase側のroundは次ラウンド更新タイミングがズレる可能性）
   const round = gameState.round || 1;
   const roundData = data['round_' + round];
   if (!roundData) return;
@@ -708,23 +704,175 @@ function handleRoomUpdate(data) {
   const mySelection = roundData[myKey];
   const oppSelection = roundData[oppKey];
 
-  if (mySelection && oppSelection) {
-    if (!gameState.confirmed) {
-      // 相手が先に確定 → 自分はまだ選択中
-      document.getElementById('game-status').textContent = '相手は選択済みです。カードを選んでください';
-      document.getElementById('game-status').className = 'status-bar waiting';
-      return;
-    }
-    // 両者確定 → 判定へ（二重防止）
-    if (!resolving) {
+  // 結果がすでにFirebaseに書き込まれている場合は表示
+  if (roundData.result && !resolving) {
+    if (gameState.confirmed) {
       stopTimeoutTimer();
-      resolveRound(mySelection, oppSelection, data);
+      resolving = true;
+      displayResultFromFirebase(roundData.result, mySelection, oppSelection);
     }
-  } else if (!mySelection && oppSelection) {
-    // 相手確定・自分未確定
+    return;
+  }
+
+  if (!mySelection && oppSelection) {
     document.getElementById('game-status').textContent = '相手は選択済みです。カードを選んでください';
     document.getElementById('game-status').className = 'status-bar waiting';
   }
+
+  if (mySelection && oppSelection && gameState.confirmed && !resolving) {
+    stopTimeoutTimer();
+    if (myRole === 'p1') {
+      // P1が判定処理して結果をFirebaseに書き込む
+      resolving = true;
+      computeAndPublishResult(mySelection, oppSelection, round);
+    }
+    // P2は結果をFirebaseから受け取る（上のresult監視で処理）
+  } else if (mySelection && !oppSelection) {
+    document.getElementById('game-status').textContent = '確定済み。相手を待っています...';
+    document.getElementById('game-status').className = 'status-bar waiting';
+  } else if (!mySelection && !oppSelection) {
+    // 相手がまだ選択中
+  }
+}
+
+function computeAndPublishResult(mySel, oppSel, round) {
+  // P1として判定処理してFirebaseに結果を書き込む
+  const result = computeRoundResult(mySel, oppSel);
+  set(ref(db, `rooms/${roomId}/round_${round}/result`), result).then(() => {
+    displayResultFromFirebase(result, mySel, oppSel);
+  });
+}
+
+function displayResultFromFirebase(result, mySel, oppSel) {
+  // Firebase結果からオーバーレイ表示
+  const myMain = ALL_CARDS.find(c=>c.id===mySel.main);
+  const oppMain = ALL_CARDS.find(c=>c.id===oppSel.main);
+  const logs = result.logs || [];
+  const myPow = result.myPow || myMain.pow || 0;
+  const oppPow = result.oppPow || oppMain.pow || 0;
+  const roundResult = result.roundResult;
+  const isBan = result.isBan || false;
+
+  // スコア更新
+  if (roundResult==='win') gameState.scores.me++;
+  else if (roundResult==='lose') gameState.scores.opp++;
+  else gameState.scores.draw++;
+
+  gameState.results.push(roundResult);
+  gameState.usedMain.push(mySel.main);
+  if (mySel.supp) gameState.usedSupp.push(mySel.supp);
+  if (oppSel.main) oppUsedCards.main.push(oppSel.main);
+  if (oppSel.supp) oppUsedCards.supp.push(oppSel.supp);
+  if (result.nfmaxMe !== undefined) gameState.forcedMax = result.nfmaxMe;
+  if (result.newBFX) gameState.usedBEffects = result.newBFX;
+
+  const isLastRound = gameState.round >= 5;
+  showRoundOverlay(roundResult, myMain, oppMain, myPow, oppPow, logs, isBan, mySel, oppSel, () => {
+    resolving = false;
+    if (isLastRound) {
+      endGame();
+    } else {
+      gameState.round++;
+      gameState.selMain = null;
+      gameState.selSupp = null;
+      gameState.confirmed = false;
+      gameState.forcedSuppOnMe = null;
+      document.getElementById('btn-confirm').disabled = false;
+      if (!isSolo && myRole === 'p1') {
+        update(ref(db, 'rooms/' + roomId), { round: gameState.round });
+      }
+      renderGameUI();
+    }
+  });
+}
+
+function computeRoundResult(mySel, oppSel) {
+  // P1視点で判定（myがP1、oppがP2）
+  const myMain = ALL_CARDS.find(c=>c.id===mySel.main);
+  const oppMain = ALL_CARDS.find(c=>c.id===oppSel.main);
+  const mySupp = mySel.supp ? ALL_CARDS.find(c=>c.id===mySel.supp) : null;
+  const oppSupp = oppSel.supp ? ALL_CARDS.find(c=>c.id===oppSel.supp) : null;
+
+  let myPow = myMain.pow || 0;
+  let oppPow = oppMain.pow || 0;
+  let forceDraw = false, myBanned = false, oppBanned = false;
+  let logs = [], nfmax = null, nfmaxMe = null;
+  let newBFX = [...gameState.usedBEffects];
+
+  resolvePayload = { pow0: myPow, pow1: oppPow, _base0: myPow, _base1: oppPow, forceDraw: false, nfmax: null };
+
+  const myNullified = oppSupp && oppSupp.suppEffect === 'nullify';
+  const oppNullified = mySupp && mySupp.suppEffect === 'nullify';
+
+  const applyS = (s, myM, oppM, isMe, nullified) => {
+    if (!s) return;
+    const eff = s.suppEffect;
+    if (nullified && eff !== 'ban_card') {
+      const nullifier = isMe ? oppSupp : mySupp;
+      logs.push(`${isMe?'自分':'相手'}の補助「${s.name}」→ ${nullifier?nullifier.name:'まのちぃ'}の「ケツ圧」で無効化された`);
+      return;
+    }
+    if (eff==='boost3') { if(isMe) myPow+=3; else oppPow+=3; logs.push(`${isMe?'自分':'相手'}「基地駐留」→ 戦力+3`); }
+    if (eff==='drunk') {
+      const target = isMe ? oppM : myM;
+      if (target.male) { if(isMe) oppPow-=2; else myPow-=2; logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${target.name} 戦力-2`); }
+      else logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${target.name} は効果なし`);
+    }
+    if (eff==='draw') { forceDraw=true; logs.push(`${isMe?'自分':'相手'}「仲裁」発動`); }
+    if (eff==='threat') { if(isMe) nfmax=oppM.pow; else nfmaxMe=myM.pow; logs.push(`${isMe?'自分':'相手'}「威嚇」→ 次ターン${isMe?'相手':'自分'}は戦力${isMe?oppM.pow:myM.pow}以下のみ`); }
+    if (eff==='ban_card') {
+      const target = isMe ? oppM : myM;
+      if (target.isBanTarget) { if(isMe) oppBanned=true; else myBanned=true; logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} をBAN！`); }
+      else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} はBAN対象外`);
+    }
+    if (eff==='forcesupp') {
+      const nextUsedS = [...gameState.usedSupp, isMe?mySel.supp:oppSel.supp].filter(Boolean);
+      const nextUsedM = [...gameState.usedMain, isMe?mySel.main:oppSel.main].filter(Boolean);
+      const av = ALL_CARDS.filter(c=>['B','S'].includes(c.type)&&!nextUsedS.includes(c.id)&&!nextUsedM.includes(c.id));
+      if (av.length) {
+        const forced = av[Math.floor(Math.random()*av.length)];
+        logs.push(`${isMe?'自分':'相手'}「補助指定」→ 次ターン${isMe?'相手':'自分'}の補助を「${forced.name}」に強制！`);
+        // forcedSuppOnOpponentとforcedSuppOnMeはdisplayResultFromFirebaseで処理
+      }
+    }
+    if (eff==='copy') {
+      const allBFX2 = [...newBFX];
+      if (isMe && myMain.type==='B' && myMain.suppEffect) allBFX2.push(myMain.suppEffect);
+      if (!isMe && oppMain.type==='B' && oppMain.suppEffect) allBFX2.push(oppMain.suppEffect);
+      const targets2 = [...new Set(allBFX2.filter(e=>e&&e!=='copy'&&e!=='nullify'&&e!=='ban_card'))];
+      if (targets2.length > 0) {
+        // あちょりんの選択はすでにgameState._achorinChoiceに記録されている
+        const chosen = isMe ? (gameState._achorinChoice || targets2[0]) : targets2[Math.floor(Math.random()*targets2.length)];
+        const effName = EFFECT_TEXT[chosen]?EFFECT_TEXT[chosen].split('：')[0]:chosen;
+        logs.push(`${isMe?'自分':'相手'}「複製」→ 「${effName}」を再発動`);
+        // 複製効果を再適用
+        if (chosen==='boost3') { if(isMe) myPow+=3; else oppPow+=3; logs.push(`複製「基地駐留」→ 戦力+3`); }
+        if (chosen==='drunk') { const t=isMe?oppM:myM; if(t.male){if(isMe)oppPow-=2;else myPow-=2;} }
+        if (chosen==='draw') { forceDraw=true; logs.push(`複製「仲裁」→ 強制引き分け`); }
+        if (chosen==='threat') { if(isMe)nfmax=oppM.pow;else nfmaxMe=myM.pow; }
+      } else {
+        logs.push(`${isMe?'自分':'相手'}「複製」→ 再利用できる効果なし`);
+      }
+    }
+    if (s.type==='B') newBFX.push(eff);
+  };
+
+  if (myMain.type==='B' && myMain.suppEffect) newBFX.push(myMain.suppEffect);
+  if (oppMain.type==='B' && oppMain.suppEffect) newBFX.push(oppMain.suppEffect);
+
+  applyS(mySupp, myMain, oppMain, true, myNullified);
+  applyS(oppSupp, oppMain, myMain, false, oppNullified);
+
+  let roundResult = '';
+  if (myBanned&&oppBanned) roundResult='draw';
+  else if (myBanned) roundResult='lose';
+  else if (oppBanned) roundResult='win';
+  else if (forceDraw) roundResult='draw';
+  else if (myPow>oppPow) roundResult='win';
+  else if (oppPow>myPow) roundResult='lose';
+  else roundResult='draw';
+
+  return { roundResult, myPow, oppPow, logs, isBan: myBanned||oppBanned, nfmax, nfmaxMe, newBFX };
 }
 
 function renderMyPlayed(sel) {
@@ -970,31 +1118,12 @@ function finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppB
       gameState.confirmed = false;
       gameState.forcedSuppOnMe = null;
       document.getElementById('btn-confirm').disabled = false;
-      // Firebase側の強制補助指定を確認
       if (!isSolo) {
-        // 威嚇制限を確認
-        get(ref(db, `rooms/${roomId}/threat_${gameState.round}_opp`)).then(snap => {
-          if (snap.val() !== null) gameState.forcedMax = snap.val();
-          renderGameUI();
-        });
-        get(ref(db, `rooms/${roomId}/forcedSupp_${gameState.round}_opp`)).then(snap => {
-          if (snap.val() && myRole !== 'p1') {
-            gameState.forcedSuppOnMe = snap.val();
-          } else if (snap.val() && myRole === 'p2') {
-            gameState.forcedSuppOnMe = snap.val();
-          }
-          renderGameUI();
-        });
-        if (myRole === 'p1') {
-          get(ref(db, `rooms/${roomId}/forcedSupp_${gameState.round}_p1`)).then(snap => {
-            if (snap.val()) gameState.forcedSuppOnMe = snap.val();
-            renderGameUI();
-          });
-        }
-        update(ref(db, 'rooms/' + roomId), { round: gameState.round });
-      } else {
+        // 対人戦はdisplayResultFromFirebaseが担うのでここには来ない
         renderGameUI();
+        return;
       }
+      renderGameUI();
     }
   });
 }
@@ -1430,34 +1559,43 @@ window.confirmSelection = async function() {
   renderMyPlayed({ main: gameState.selMain, supp: gameState.selSupp });
 
   if (isSolo) {
-    setTimeout(() => {
+    // あちょりんチェック後にAI選択→判定
+    const mySel = { main: gameState.selMain, supp: gameState.selSupp };
+    await handleAchorinIfNeeded(mySel, null, (finalMySel) => {
       const oppSel = soloOppSelect();
-      resolveRound({ main: gameState.selMain, supp: gameState.selSupp || null }, oppSel, null);
-    }, 800);
+      resolveRound(finalMySel, oppSel, null);
+    });
     return;
   }
 
+  // 対人戦：自分の選択をFirebaseに書き込む
   await set(ref(db, `rooms/${roomId}/round_${gameState.round}/${myRole}`), {
     main: gameState.selMain,
     supp: gameState.selSupp || null,
   });
-  // 書き込み後、相手がすでに確定済みか確認
-  const snap = await get(ref(db, `rooms/${roomId}/round_${gameState.round}`));
-  const roundData = snap.val() || {};
-  const oppKey = myRole === 'p1' ? 'p2' : 'p1';
-  if (roundData[oppKey]) {
-    // 相手がすでに確定済み → 即座に判定へ
-    stopTimeoutTimer();
-    if (!resolving) resolveRound(
-      { main: gameState.selMain, supp: gameState.selSupp || null },
-      roundData[oppKey],
-      null
-    );
-  } else {
-    // 相手待ち → タイムアウト開始
-    startTimeoutTimer();
-  }
+  startTimeoutTimer();
 };
+
+// あちょりんが選ばれた場合の選択処理（ソロ用）
+async function handleAchorinIfNeeded(mySel, oppSel, callback) {
+  const myMainC = ALL_CARDS.find(c=>c.id===mySel.main);
+  const mySuppC = mySel.supp ? ALL_CARDS.find(c=>c.id===mySel.supp) : null;
+  if (mySuppC && mySuppC.suppEffect === 'copy') {
+    const allBFX = [...gameState.usedBEffects];
+    if (myMainC && myMainC.type==='B' && myMainC.suppEffect) allBFX.push(myMainC.suppEffect);
+    const targets = [...new Set(allBFX.filter(e=>e&&e!=='copy'&&e!=='nullify'&&e!=='ban_card'))];
+    if (targets.length > 0) {
+      pendingCopyTargets = targets;
+      pendingCopyCallback = (chosenEff) => {
+        gameState._achorinChoice = chosenEff;
+      };
+      pendingResolveContinue = () => { callback(mySel); };
+      showAchorinModal(targets, pendingCopyCallback);
+      return;
+    }
+  }
+  callback(mySel);
+}
 
 </script>
 </body>
