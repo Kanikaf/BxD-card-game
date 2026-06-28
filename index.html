@@ -1606,7 +1606,31 @@ window.confirmSelection = async function() {
     main: gameState.selMain,
     supp: gameState.selSupp || null,
   });
-  startTimeoutTimer();
+  // 書き込み後、相手がすでに確定 or 結果がある場合はタイムアウト不要
+  const snap = await get(ref(db, `rooms/${roomId}/round_${gameState.round}`));
+  const rd = snap.val() || {};
+  const oppKey2 = myRole === 'p1' ? 'p2' : 'p1';
+  if (rd.result) {
+    // すでに結果がある（P1が先に判定済み）→ 即表示
+    stopTimeoutTimer();
+    if (!resolving) {
+      resolving = true;
+      const mySel2 = { main: gameState.selMain, supp: gameState.selSupp || null };
+      displayResultFromFirebase(rd.result, mySel2, rd[oppKey2] || {});
+    }
+  } else if (rd[oppKey2]) {
+    // 相手が確定済みでresultはまだ → P1なら判定開始、P2なら待機
+    stopTimeoutTimer();
+    if (myRole === 'p1' && !resolving) {
+      resolving = true;
+      const mySel2 = { main: gameState.selMain, supp: gameState.selSupp || null };
+      computeAndPublishResult(mySel2, rd[oppKey2], gameState.round);
+    }
+    // P2はhandleRoomUpdateがresultを検知するのを待つ（タイムアウトなし）
+  } else {
+    // 相手未確定 → タイムアウト開始
+    startTimeoutTimer();
+  }
 };
 
 // あちょりんが選ばれた場合の選択処理（ソロ用）
