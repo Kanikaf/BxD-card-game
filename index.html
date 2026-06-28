@@ -814,9 +814,12 @@ function resolveRound(mySel, oppSel, roomData) {
       else logs.push(`${isMe?'自分':'相手'}「運営BAN」→ ${target.name} はBAN対象外`);
     }
     if (eff === 'forcesupp') {
+      const nextUsedSupp = [...gameState.usedSupp, (isMe ? mySel.supp : oppSel.supp)].filter(Boolean);
+      const nextUsedMain = [...gameState.usedMain, (isMe ? mySel.main : oppSel.main)].filter(Boolean);
       const availSupp = ALL_CARDS.filter(c =>
-        ['B','S'].includes(c.type) &&  // BANカード(T)は除外
-        !gameState.usedSupp.includes(c.id) &&
+        ['B','S'].includes(c.type) &&
+        !nextUsedSupp.includes(c.id) &&
+        !nextUsedMain.includes(c.id) &&
         (isMe ? c.id !== (mySel ? mySel.main : null) : c.id !== (oppSel ? oppSel.main : null))
       );
       if (availSupp.length > 0) {
@@ -1048,7 +1051,14 @@ function renderGameUI() {
     noticeHtml += `<div class="notice">⚠️ 威嚇中：戦力${gameState.forcedMax}以下のカードのみ選択可</div>`;
   if (gameState.forcedSuppOnMe !== null) {
     const fc = ALL_CARDS.find(c=>c.id===gameState.forcedSuppOnMe);
-    noticeHtml += `<div class="notice" style="border-color:var(--danger);color:var(--danger)">🎯 カニカフ効果：補助カードが「${fc?fc.name:'不明'}」に強制指定されています</div>`;
+    const forcedUsed = gameState.usedSupp.includes(gameState.forcedSuppOnMe) || gameState.usedMain.includes(gameState.forcedSuppOnMe);
+    if (forcedUsed) {
+      // 使用済みなら強制指定を無効化
+      gameState.forcedSuppOnMe = null;
+      noticeHtml += `<div class="notice">カニカフ効果：指定された補助カードは使用済みのため強制指定が解除されました</div>`;
+    } else {
+      noticeHtml += `<div class="notice" style="border-color:var(--danger);color:var(--danger)">🎯 カニカフ効果：補助カードが「${fc?fc.name:'不明'}」に強制指定されています</div>`;
+    }
   }
   na.innerHTML = noticeHtml;
 
