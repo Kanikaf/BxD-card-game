@@ -988,7 +988,7 @@ function updateHints() {
     const c = ALL_CARDS.find(x=>x.id===gameState.selSupp);
     sh.className = 'effect-hint supp-active';
     sh.innerHTML = `<div class="hint-name">${c.name}</div><div>${EFFECT_TEXT[c.suppEffect]||''}</div>`;
-    document.getElementById('preview-supp').textContent = '補助: ' + c.name;
+    document.getElementById('preview-supp').textContent = EFFECT_TEXT[c.suppEffect] || c.name;
   } else {
     sh.className = 'effect-hint';
     sh.textContent = '補助カードを選ぶと効果が表示されます';
