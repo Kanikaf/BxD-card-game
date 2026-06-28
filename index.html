@@ -445,7 +445,7 @@
       </div>
       <div class="rule-card-row">
         <div class="rc-name">あちょりん <span class="tag tag-S">補助</span></div>
-        <div class="rc-effect">複製：すでに使い切ったBカードの補助効果を1つ指定して再発動。</div>
+        <div class="rc-effect">リセット：使用済みの補助カード（BAN除く）を1枚選んで手札に戻す。次のターンから再び使用可能。</div>
       </div>
     </div>
 
@@ -492,7 +492,7 @@ const db = getDatabase(app);
 const EFFECT_TEXT = {
   boost3:    '基地駐留：自メインカードの戦力+3',
   drunk:     '強いお酒：相手が男性カードなら戦力-2（イツキ・ネ申・ダイヤ・MASAわん・ひろすね・カニカフ）',
-  copy:      '複製：このゲームで使い切ったBカードの補助効果を1つ選んで再発動',
+  reset:     'リセット：使用済みの補助カード（BAN除く）を1枚選んで手札に戻す',
   ban_card:  '運営BAN：相手のAカードを無効化して自動勝利',
   threat:    '威嚇：相手が出したカードの戦力以下のカードを次ターン強制',
   draw:      '仲裁：このターンを引き分けにする',
@@ -511,7 +511,7 @@ const ALL_CARDS = [
   { id:'kani',   name:'カニカフ', pow:5,  type:'B', male:true,  suppEffect:'forcesupp', canBan:true },
   { id:'rosso',   name:'Rosso',    type:'S', suppEffect:'boost3' },
   { id:'sinon',   name:'Sinon',    type:'S', suppEffect:'drunk' },
-  { id:'achorin', name:'あちょりん', type:'S', suppEffect:'copy' },
+  { id:'achorin', name:'あちょりん', type:'S', suppEffect:'reset' },
   { id:'ban1',    name:'運営BAN',  type:'T', suppEffect:'ban_card', isBan:true },
   { id:'ban2',    name:'運営BAN',  type:'T', suppEffect:'ban_card', isBan:true },
 ];
@@ -737,6 +737,11 @@ function handleRoomUpdate(data) {
 }
 
 function computeAndPublishResult(mySel, oppSel, round) {
+  // P2のあちょりん選択があればgameStateに記録（P1視点では相手=oppSel）
+  // oppSelはFirebaseから来るのでachorinChoiceが含まれる場合がある
+  // ただしcomputeRoundResultではisMe=falseのときランダム選択するのでP2のchoiceは無視される
+  // → P1はP2のchoiceをFirebaseから読んでgameState._oppAchorinChoiceにセット
+  if (oppSel.achorinChoice) gameState._oppAchorinChoice = oppSel.achorinChoice;
   const result = computeRoundResult(mySel, oppSel);
   // forcedSuppをFirebaseに書き込む
   const writes = [set(ref(db, `rooms/${roomId}/round_${round}/result`), result)];
@@ -784,6 +789,12 @@ function displayResultFromFirebase(result, mySel, oppSel) {
   }
   if (result.newBFX) gameState.usedBEffects = result.newBFX;
 
+  // リセット効果：P1ならresetForP1、P2ならresetForP2を自分のusedSuppから削除
+  const myResetId = isP2 ? result.resetForP2 : result.resetForP1;
+  if (myResetId) {
+    gameState.usedSupp = gameState.usedSupp.filter(id => id !== myResetId);
+  }
+
   // forcedSupp: P1ならforcedSuppForP1、P2ならforcedSuppForP2を自分に適用
   // Firebaseから次ラウンド開始時に取得する
   if (!isSolo && roomId) {
@@ -829,6 +840,7 @@ function computeRoundResult(mySel, oppSel) {
   let logs = [], nfmax = null, nfmaxMe = null;
   let newBFX = [...gameState.usedBEffects];
   let forcedSuppForP1 = null, forcedSuppForP2 = null;
+  let resetForP1 = null, resetForP2 = null;
 
   resolvePayload = { pow0: myPow, pow1: oppPow, _base0: myPow, _base1: oppPow, forceDraw: false, nfmax: null };
 
@@ -868,23 +880,18 @@ function computeRoundResult(mySel, oppSel) {
         else forcedSuppForP1 = forced.id;
       }
     }
-    if (eff==='copy') {
-      const allBFX2 = [...newBFX];
-      if (isMe && myMain.type==='B' && myMain.suppEffect) allBFX2.push(myMain.suppEffect);
-      if (!isMe && oppMain.type==='B' && oppMain.suppEffect) allBFX2.push(oppMain.suppEffect);
-      const targets2 = [...new Set(allBFX2.filter(e=>e&&e!=='copy'&&e!=='nullify'&&e!=='ban_card'))];
-      if (targets2.length > 0) {
-        // あちょりんの選択はすでにgameState._achorinChoiceに記録されている
-        const chosen = isMe ? (gameState._achorinChoice || targets2[0]) : targets2[Math.floor(Math.random()*targets2.length)];
-        const effName = EFFECT_TEXT[chosen]?EFFECT_TEXT[chosen].split('：')[0]:chosen;
-        logs.push(`${isMe?'自分':'相手'}「複製」→ 「${effName}」を再発動`);
-        // 複製効果を再適用
-        if (chosen==='boost3') { if(isMe) myPow+=3; else oppPow+=3; logs.push(`複製「基地駐留」→ 戦力+3`); }
-        if (chosen==='drunk') { const t=isMe?oppM:myM; if(t.male){if(isMe)oppPow-=2;else myPow-=2;} }
-        if (chosen==='draw') { forceDraw=true; logs.push(`複製「仲裁」→ 強制引き分け`); }
-        if (chosen==='threat') { if(isMe)nfmax=oppM.pow;else nfmaxMe=myM.pow; }
+    if (eff==='reset') {
+      // リセット効果：使用済み補助カードを1枚手札に戻す
+      // P1一元管理のため、あちょりん選択はopp/mySelのresetChoiceフィールドで受け取る
+      const resetId = isMe ? (mySel.resetChoice || null) : (oppSel.resetChoice || null);
+      if (resetId) {
+        const rc = ALL_CARDS.find(x=>x.id===resetId);
+        logs.push(`${isMe?'自分':'相手'}「リセット」→ 「${rc?rc.name:'補助カード'}」を手札に戻した`);
+        // gameState.usedSuppからreset対象を削除（displayResultFromFirebaseで反映）
+        if (!resetForP1 && !isMe) resetForP1 = resetId;
+        if (!resetForP2 && isMe) resetForP2 = resetId;
       } else {
-        logs.push(`${isMe?'自分':'相手'}「複製」→ 再利用できる効果なし`);
+        logs.push(`${isMe?'自分':'相手'}「リセット」→ 補助カードを手札に戻した`);
       }
     }
     if (s.type==='B') newBFX.push(eff);
@@ -905,7 +912,7 @@ function computeRoundResult(mySel, oppSel) {
   else if (oppPow>myPow) roundResult='lose';
   else roundResult='draw';
 
-  return { roundResult, myPow, oppPow, logs, isBan: myBanned||oppBanned, nfmax, nfmaxMe, newBFX, forcedSuppForP1, forcedSuppForP2 };
+  return { roundResult, myPow, oppPow, logs, isBan: myBanned||oppBanned, nfmax, nfmaxMe, newBFX, forcedSuppForP1, forcedSuppForP2, resetForP1, resetForP2 };
 }
 
 function renderMyPlayed(sel) {
@@ -917,6 +924,7 @@ function renderMyPlayed(sel) {
 let pendingCopyTargets = [];
 let pendingCopyCallback = null;
 let pendingResolveContinue = null;
+let pendingResetTargets = [];
 
 // 個別効果を再発動するヘルパー（あちょりん複製用）
 function applyBEffect(eff, myM, oppM, p0ref, p1ref, logs) {
@@ -966,6 +974,41 @@ window.achorinCancel = function() {
   pendingResolveContinue = null;
   pendingCopyCallback = null;
   pendingCopyTargets = [];
+  if (cont) cont();
+};
+
+function showResetModal(targets) {
+  const list = document.getElementById('achorin-list');
+  list.innerHTML = '';
+  targets.forEach(id => {
+    const c = ALL_CARDS.find(x=>x.id===id);
+    if (!c) return;
+    const item = document.createElement('div');
+    item.className = 'achorin-item';
+    item.innerHTML = `<div class="ai-name">${c.name}${c.pow?' (戦力'+c.pow+')':''}</div><div class="ai-effect">${EFFECT_TEXT[c.suppEffect]||''}</div>`;
+    item.onclick = () => {
+      document.getElementById('achorin-modal').classList.remove('open');
+      gameState._resetChoice = id;
+      // ソロモードでは即座にusedSuppから削除
+      if (isSolo) gameState.usedSupp = gameState.usedSupp.filter(x=>x!==id);
+      const cont = pendingResolveContinue;
+      pendingResolveContinue = null;
+      pendingResetTargets = [];
+      if (cont) cont();
+    };
+    list.appendChild(item);
+  });
+  // タイトルを変更
+  document.querySelector('#achorin-modal .achorin-title').textContent = 'リセット — 手札に戻すカードを選んでください';
+  document.querySelector('#achorin-modal .achorin-sub').textContent = '選んだ補助カードを使用済みから手札に戻します';
+  document.getElementById('achorin-modal').classList.add('open');
+}
+
+window.resetCancel = function() {
+  document.getElementById('achorin-modal').classList.remove('open');
+  pendingResetTargets = [];
+  const cont = pendingResolveContinue;
+  pendingResolveContinue = null;
   if (cont) cont();
 };
 
@@ -1078,21 +1121,14 @@ function resolveRound(mySel, oppSel, roomData) {
   if (myMain.type==='B' && myMain.suppEffect) newBFX.push(myMain.suppEffect);
   if (oppMain.type==='B' && oppMain.suppEffect) newBFX.push(oppMain.suppEffect);
 
-  // あちょりんが選ばれていて使い切ったB効果がある場合はモーダルを出す
-  const needAchorin = pendingCopyTargets.length > 0 && pendingCopyCallback;
-
   const continueResolve = () => {
-    // resolvePayloadの反映（あちょりん複製で変動した場合）
-    myPow += (resolvePayload.pow0 || 0) - (resolvePayload._base0 || 0);
-    oppPow += (resolvePayload.pow1 || 0) - (resolvePayload._base1 || 0);
-    if (resolvePayload.forceDraw) forceDraw = true;
-    if (resolvePayload.nfmax !== null && resolvePayload.nfmax !== undefined) nfmax = resolvePayload.nfmax;
     finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, nfmaxMe, logs, newBFX, mySel, oppSel);
   };
 
-  if (needAchorin) {
+  // あちょりんリセット選択が必要な場合
+  if (pendingResetTargets.length > 0) {
     pendingResolveContinue = continueResolve;
-    showAchorinModal(pendingCopyTargets, pendingCopyCallback);
+    showResetModal(pendingResetTargets);
   } else {
     continueResolve();
   }
@@ -1364,7 +1400,11 @@ function renderCardSelections() {
     const banBlocked = c.isBan && (!selMainCard || !selMainCard.canBan);
     const isForcedMode = gameState.forcedSuppOnMe !== null;
     const isForced = isForcedMode && c.id === gameState.forcedSuppOnMe;
-    const achorinBlocked = c.id === 'achorin' && usedBCount === 0;
+    // あちょりん：使用済み補助カード（BAN除く）がなければ選択不可
+    const achorinBlocked = c.id === 'achorin' && gameState.usedSupp.filter(id => {
+      const card = ALL_CARDS.find(x=>x.id===id);
+      return card && card.type !== 'T';
+    }).length === 0;
     const isNextTurnEffect = c.suppEffect === 'threat' || c.suppEffect === 'forcesupp';
     const warnNoEffect = isLastRound && isNextTurnEffect && !isForced;
 
@@ -1591,9 +1631,10 @@ window.confirmSelection = async function() {
   document.getElementById('game-status').className = 'status-bar waiting';
   renderMyPlayed({ main: gameState.selMain, supp: gameState.selSupp });
 
+  const mySel = { main: gameState.selMain, supp: gameState.selSupp };
+
   if (isSolo) {
     // あちょりんチェック後にAI選択→判定
-    const mySel = { main: gameState.selMain, supp: gameState.selSupp };
     await handleAchorinIfNeeded(mySel, null, (finalMySel) => {
       const oppSel = soloOppSelect();
       resolveRound(finalMySel, oppSel, null);
@@ -1601,53 +1642,50 @@ window.confirmSelection = async function() {
     return;
   }
 
-  // 対人戦：自分の選択をFirebaseに書き込む
-  await set(ref(db, `rooms/${roomId}/round_${gameState.round}/${myRole}`), {
-    main: gameState.selMain,
-    supp: gameState.selSupp || null,
+  // 対人戦：あちょりんモーダルがあれば先に選択させてからFirebaseに書き込む
+  await handleAchorinIfNeeded(mySel, null, async (finalMySel) => {
+    await set(ref(db, `rooms/${roomId}/round_${gameState.round}/${myRole}`), {
+      main: finalMySel.main,
+      supp: finalMySel.supp || null,
+      resetChoice: gameState._resetChoice || null,
+    });
+    // 書き込み後、相手がすでに確定 or 結果がある場合はタイムアウト不要
+    const snap = await get(ref(db, `rooms/${roomId}/round_${gameState.round}`));
+    const rd = snap.val() || {};
+    const oppKey2 = myRole === 'p1' ? 'p2' : 'p1';
+    if (rd.result) {
+      stopTimeoutTimer();
+      if (!resolving) {
+        resolving = true;
+        const mySel2 = { main: gameState.selMain, supp: gameState.selSupp || null };
+        displayResultFromFirebase(rd.result, mySel2, rd[oppKey2] || {});
+      }
+    } else if (rd[oppKey2]) {
+      stopTimeoutTimer();
+      if (myRole === 'p1' && !resolving) {
+        resolving = true;
+        // P1の場合、相手のachorinChoiceをgameStateに記録してから判定
+        const mySel2 = { main: gameState.selMain, supp: gameState.selSupp || null };
+        computeAndPublishResult(mySel2, rd[oppKey2], gameState.round);
+      }
+    } else {
+      startTimeoutTimer();
+    }
   });
-  // 書き込み後、相手がすでに確定 or 結果がある場合はタイムアウト不要
-  const snap = await get(ref(db, `rooms/${roomId}/round_${gameState.round}`));
-  const rd = snap.val() || {};
-  const oppKey2 = myRole === 'p1' ? 'p2' : 'p1';
-  if (rd.result) {
-    // すでに結果がある（P1が先に判定済み）→ 即表示
-    stopTimeoutTimer();
-    if (!resolving) {
-      resolving = true;
-      const mySel2 = { main: gameState.selMain, supp: gameState.selSupp || null };
-      displayResultFromFirebase(rd.result, mySel2, rd[oppKey2] || {});
-    }
-  } else if (rd[oppKey2]) {
-    // 相手が確定済みでresultはまだ → P1なら判定開始、P2なら待機
-    stopTimeoutTimer();
-    if (myRole === 'p1' && !resolving) {
-      resolving = true;
-      const mySel2 = { main: gameState.selMain, supp: gameState.selSupp || null };
-      computeAndPublishResult(mySel2, rd[oppKey2], gameState.round);
-    }
-    // P2はhandleRoomUpdateがresultを検知するのを待つ（タイムアウトなし）
-  } else {
-    // 相手未確定 → タイムアウト開始
-    startTimeoutTimer();
-  }
 };
 
-// あちょりんが選ばれた場合の選択処理（ソロ用）
+// あちょりんが選ばれた場合の選択処理
 async function handleAchorinIfNeeded(mySel, oppSel, callback) {
-  const myMainC = ALL_CARDS.find(c=>c.id===mySel.main);
   const mySuppC = mySel.supp ? ALL_CARDS.find(c=>c.id===mySel.supp) : null;
-  if (mySuppC && mySuppC.suppEffect === 'copy') {
-    const allBFX = [...gameState.usedBEffects];
-    if (myMainC && myMainC.type==='B' && myMainC.suppEffect) allBFX.push(myMainC.suppEffect);
-    const targets = [...new Set(allBFX.filter(e=>e&&e!=='copy'&&e!=='nullify'&&e!=='ban_card'))];
-    if (targets.length > 0) {
-      pendingCopyTargets = targets;
-      pendingCopyCallback = (chosenEff) => {
-        gameState._achorinChoice = chosenEff;
-      };
+  if (mySuppC && mySuppC.suppEffect === 'reset') {
+    const resetTargets = gameState.usedSupp.filter(id => {
+      const c = ALL_CARDS.find(x=>x.id===id);
+      return c && c.type !== 'T';
+    });
+    if (resetTargets.length > 0) {
+      pendingResetTargets = resetTargets;
       pendingResolveContinue = () => { callback(mySel); };
-      showAchorinModal(targets, pendingCopyCallback);
+      showResetModal(resetTargets);
       return;
     }
   }
