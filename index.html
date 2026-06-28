@@ -280,16 +280,14 @@
       </div>
     </div>
     <div class="vs-label">VS</div>
-    <div class="played-card" id="opp-played">
-      <div class="pc-hidden">🂠</div>
-      <div id="opp-remain" style="display:none;width:100%;padding:4px 2px">
-        <div style="font-size:10px;color:var(--warn);font-weight:600;margin-bottom:4px;text-align:center">相手の残り手札</div>
-        <div id="opp-remain-list" style="display:flex;flex-wrap:wrap;gap:3px;justify-content:center"></div>
-      </div>
-    </div>
+    <div class="played-card" id="opp-played"><div class="pc-hidden">🂠</div></div>
   </div>
 
   <div class="status-bar waiting" id="game-status">カードを選んでください</div>
+  <div id="opp-remain" style="display:none;background:var(--surface);border-radius:8px;padding:8px 10px;font-size:11px">
+    <span style="color:var(--warn);font-weight:600">相手の残り手札：</span>
+    <span id="opp-remain-list"></span>
+  </div>
 
   <div class="select-area">
     <div class="select-label">メインカード（1枚）</div>
@@ -1104,6 +1102,7 @@ function renderGameUI() {
     </div>`;
   document.getElementById('opp-played').className = 'played-card';
   document.getElementById('opp-played').innerHTML = '<div class="pc-hidden">🂠</div>';
+  document.getElementById('opp-remain').style.display = 'none';
 
   renderCardSelections();
   updateHints();
@@ -1135,7 +1134,7 @@ function renderOppRemain() {
   remainEl.style.display = 'block';
   listEl.innerHTML = oppRemain.map(c => {
     const color = c.type==='A'?'#378ADD':c.type==='B'?'#7F77DD':c.type==='S'?'#1D9E75':'#E24B4A';
-    return `<span style="font-size:10px;padding:2px 5px;border-radius:4px;border:1px solid ${color};color:${color};white-space:nowrap">${c.name}${c.pow?` ${c.pow}`:''}</span>`;
+    return `<span style="font-size:10px;padding:1px 5px;border-radius:3px;border:1px solid ${color};color:${color};white-space:nowrap;margin-right:3px">${c.name}${c.pow?` ${c.pow}`:''}</span>`;
   }).join('');
 }
 
@@ -1405,7 +1404,7 @@ window.confirmSelection = async function() {
   if (!gameState.selSupp) { alert('補助カードを選んでください'); return; }
   gameState.confirmed = true;
   document.getElementById('btn-confirm').disabled = true;
-  document.getElementById('game-status').textContent = isSolo ? 'AIが選択中...' : '確定済み。相手を待っています...';
+  document.getElementById('game-status').textContent = isSolo ? '確定済み。' : '確定済み。相手を待っています...';
   document.getElementById('game-status').className = 'status-bar waiting';
   renderMyPlayed({ main: gameState.selMain, supp: gameState.selSupp });
 
