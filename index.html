@@ -184,7 +184,9 @@
     </div>
     <button class="btn btn-primary" id="btn-recruit" onclick="recruit()">対戦を募集する</button>
     <div style="height:8px"></div>
-    <button class="btn btn-secondary btn-sm" style="width:100%" onclick="cancelRecruit()" id="btn-cancel" style="display:none">募集をキャンセル</button>
+    <button class="btn btn-secondary" onclick="startSolo()" style="font-size:13px">ソロプレビュー（1人で動作確認）</button>
+    <div style="height:8px"></div>
+    <button class="btn btn-secondary btn-sm" style="width:100%;display:none" onclick="cancelRecruit()" id="btn-cancel">募集をキャンセル</button>
   </div>
 </div>
 
@@ -460,10 +462,12 @@ function handleRoomUpdate(data) {
     if (!gameState.confirmed) return;
     resolveRound(mySelection, oppSelection, data);
   } else if (mySelection && !oppSelection) {
-    document.getElementById('game-status').textContent = '相手の選択を待っています...';
-    document.getElementById('game-status').className = 'status-bar waiting';
-    document.getElementById('btn-confirm').disabled = true;
-    renderMyPlayed(mySelection);
+    if (!isSolo) {
+      document.getElementById('game-status').textContent = '相手の選択を待っています...';
+      document.getElementById('game-status').className = 'status-bar waiting';
+      document.getElementById('btn-confirm').disabled = true;
+      renderMyPlayed(mySelection);
+    }
   }
 }
 
@@ -565,8 +569,7 @@ function resolveRound(mySel, oppSel, roomData) {
       gameState.confirmed = false;
       document.getElementById('btn-confirm').disabled = false;
       renderGameUI();
-      // Firebase側のラウンドを更新（P1が担当）
-      if (myRole === 'p1') {
+      if (!isSolo && myRole === 'p1') {
         update(ref(db, 'rooms/' + roomId), { round: gameState.round });
       }
     }
@@ -597,7 +600,7 @@ function endGame() {
   const me = gameState.scores.me;
   const opp = gameState.scores.opp;
   const result = me > opp ? 'win' : opp > me ? 'lose' : 'draw';
-  if (myRole === 'p1') {
+  if (!isSolo && myRole === 'p1') {
     update(ref(db, 'rooms/' + roomId), { status: 'finished', finalScore: { p1: myRole==='p1'?me:opp, p2: myRole==='p1'?opp:me } });
   }
   const badge = document.getElementById('final-badge');
@@ -613,7 +616,8 @@ function showFinalResult(data) {
 }
 
 window.backToLobby = function() {
-  if (roomId) remove(ref(db, 'rooms/' + roomId));
+  if (!isSolo && roomId) remove(ref(db, 'rooms/' + roomId));
+  isSolo = false;
   roomId = '';
   myRole = '';
   gameState = {};
@@ -722,17 +726,56 @@ function updateHints() {
   }
 }
 
+// ===== SOLO PREVIEW =====
+let isSolo = false;
+
+window.startSolo = function() {
+  isSolo = true;
+  myName = document.getElementById('lobby-myname').textContent || 'プレイヤー';
+  myRole = 'p1';
+  gameState = {
+    round: 1,
+    scores: { me: 0, opp: 0, draw: 0 },
+    results: [],
+    usedMain: [],
+    usedSupp: [],
+    forcedMax: null,
+    selMain: null,
+    selSupp: null,
+    usedBEffects: [],
+    confirmed: false,
+  };
+  showScreen('game');
+  renderGameUI();
+};
+
+function soloOppSelect() {
+  const available = ALL_CARDS.filter(c => ['A','B'].includes(c.type) && !gameState.usedMain.includes(c.id));
+  const oppMain = available[Math.floor(Math.random() * available.length)];
+  const suppPool = ALL_CARDS.filter(c => ['B','S','T'].includes(c.type) && !gameState.usedSupp.includes(c.id) && c.id !== oppMain.id);
+  const oppSupp = Math.random() < 0.5 && suppPool.length ? suppPool[Math.floor(Math.random()*suppPool.length)] : null;
+  return { main: oppMain.id, supp: oppSupp ? oppSupp.id : null };
+}
+
 // ===== CONFIRM =====
 window.confirmSelection = async function() {
   if (!gameState.selMain) { alert('メインカードを選んでください'); return; }
   gameState.confirmed = true;
   document.getElementById('btn-confirm').disabled = true;
-  document.getElementById('game-status').textContent = '確定済み。相手を待っています...';
+  document.getElementById('game-status').textContent = isSolo ? 'AIが選択中...' : '確定済み。相手を待っています...';
   document.getElementById('game-status').className = 'status-bar waiting';
-
-  const myKey = myRole;
   renderMyPlayed({ main: gameState.selMain, supp: gameState.selSupp });
-  await set(ref(db, `rooms/${roomId}/round_${gameState.round}/${myKey}`), {
+
+  if (isSolo) {
+    // ソロモード：ダミーAIが選択してすぐ解決
+    setTimeout(() => {
+      const oppSel = soloOppSelect();
+      resolveRound({ main: gameState.selMain, supp: gameState.selSupp || null }, oppSel, null);
+    }, 800);
+    return;
+  }
+
+  await set(ref(db, `rooms/${roomId}/round_${gameState.round}/${myRole}`), {
     main: gameState.selMain,
     supp: gameState.selSupp || null,
   });
