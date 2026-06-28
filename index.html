@@ -711,6 +711,8 @@ let pendingResolveContinue = null;
 
 // 個別効果を再発動するヘルパー（あちょりん複製用）
 function applyBEffect(eff, myM, oppM, p0ref, p1ref, logs) {
+  if (!resolvePayload.pow0) resolvePayload.pow0 = resolvePayload._base0 || 0;
+  if (!resolvePayload.pow1) resolvePayload.pow1 = resolvePayload._base1 || 0;
   if (eff==='boost3') { resolvePayload.pow0 += 3; logs.push(`複製「基地駐留」→ 戦力+3`); }
   if (eff==='drunk') { if(oppM.male){ resolvePayload.pow1 -= 2; logs.push(`複製「強いお酒」→ ${oppM.name} 戦力-2`); } else logs.push(`複製「強いお酒」→ ${oppM.name} は効果なし`); }
   if (eff==='draw') { resolvePayload.forceDraw = true; logs.push(`複製「仲裁」→ 強制引き分け`); }
@@ -783,7 +785,7 @@ function resolveRound(mySel, oppSel, roomData) {
   const applySupp = (s, myM, oppM, isMe, nullified) => {
     if (!s) return;
     const eff = s.suppEffect;
-    if (nullified && eff !== 'ban_card') { logs.push(`${isMe?'自分':'相手'}の補助「${s.name}」→ 無効化された`); return; }
+    if (nullified && eff !== 'ban_card') { logs.push(`${isMe?'自分':'相手'}の補助「${s.name||'不明'}」→ 無効化された`); return; }
     if (eff === 'boost3') { if(isMe) myPow+=3; else oppPow+=3; logs.push(`${isMe?'自分':'相手'}「基地駐留」→ 戦力+3`); }
     if (eff === 'drunk') {
       const target = isMe ? oppM : myM;
@@ -847,16 +849,18 @@ function resolveRound(mySel, oppSel, roomData) {
 
   // あちょりんが選ばれていて使い切ったB効果がある場合はモーダルを出す
   const needAchorin = pendingCopyTargets.length > 0 && pendingCopyCallback;
+
   const continueResolve = () => {
-    // resolvePayloadから反映
-    if (resolvePayload.pow0 !== myPow || resolvePayload.pow1 !== oppPow) {
-      myPow = resolvePayload.pow0;
-      oppPow = resolvePayload.pow1;
-    }
+    // resolvePayloadの反映（あちょりん複製で変動した場合）
+    myPow += (resolvePayload.pow0 || 0) - (resolvePayload._base0 || 0);
+    oppPow += (resolvePayload.pow1 || 0) - (resolvePayload._base1 || 0);
     if (resolvePayload.forceDraw) forceDraw = true;
-    if (resolvePayload.nfmax !== null) nfmax = resolvePayload.nfmax;
+    if (resolvePayload.nfmax !== null && resolvePayload.nfmax !== undefined) nfmax = resolvePayload.nfmax;
     finishResolve(myMain, oppMain, myPow, oppPow, forceDraw, myBanned, oppBanned, nfmax, logs, newBFX, mySel, oppSel);
   };
+
+  // resolvePayloadのベース値を記録
+  resolvePayload = { pow0: myPow, pow1: oppPow, _base0: myPow, _base1: oppPow, forceDraw: false, nfmax: null };
 
   if (needAchorin) {
     pendingResolveContinue = continueResolve;
@@ -936,7 +940,7 @@ function showRoundOverlay(result, myMain, oppMain, myPow, oppPow, logs, isBan, c
   const labels = { win:'WIN', lose:'LOSE', draw:'DRAW' };
   badge.textContent = isBan && result!=='draw' ? (result==='win'?'BAN WIN':'BAN LOSE') : labels[result];
   badge.className = 'result-badge ' + (result==='win'?'win':result==='lose'?'lose':'draw') + (isBan?' ban':'');
-  detail.innerHTML = logs.map(l=>`<div>${l}</div>`).join('') + `<div style="margin-top:8px">${myMain.name}(${myPow}) vs ${oppMain.name}(${oppPow})</div>`;
+  detail.innerHTML = logs.map(l=>`<div>${l}</div>`).join('') + `<div style="margin-top:8px">${myMain.name}(${Number(myPow)||0}) vs ${oppMain.name}(${Number(oppPow)||0})</div>`;
   score.textContent = `${myName} ${gameState.scores.me} — ${gameState.scores.opp}`;
   overlay.style.display = 'flex';
   window._overlayCallback = callback;
