@@ -441,7 +441,7 @@
       </div>
       <div class="rule-card-row">
         <div class="rc-name">Sinon <span class="tag tag-S">補助</span></div>
-        <div class="rc-effect">強いお酒：相手が男性カード（イツキ・ダイヤ・MASAわん・ひろすね・カニカフ）なら戦力-2。ネ申は下戸なので効果なし。</div>
+        <div class="rc-effect">強いお酒：相手が男性カード（イツキ・ダイヤ・MASAわん・ひろすね・カニカフ）なら戦力-2。ネ申はコーラしか飲まないので効果なし。</div>
       </div>
       <div class="rule-card-row">
         <div class="rc-name">あちょりん <span class="tag tag-S">補助</span></div>
@@ -491,7 +491,7 @@ const db = getDatabase(app);
 // ===== CARD DATA =====
 const EFFECT_TEXT = {
   boost3:    '基地駐留：自メインカードの戦力+3',
-  drunk:     '強いお酒：相手が男性カードなら戦力-2（イツキ・ダイヤ・MASAわん・ひろすね・カニカフ）ネ申は下戸で無効',
+  drunk:     '強いお酒：相手が男性カードなら戦力-2（イツキ・ダイヤ・MASAわん・ひろすね・カニカフ）ネ申はコーラしか飲まないので無効',
   reset:     'リセット：使用済みの補助カード（BAN除く）を1枚選んで手札に戻す',
   ban_card:  '運営BAN：相手のAカードを無効化して自動勝利',
   threat:    '威嚇：相手が出したカードの戦力以下のカードを次ターン強制',
@@ -871,7 +871,7 @@ function computeRoundResult(mySel, oppSel) {
     if (eff==='boost3') { if(isMe) myPow+=3; else oppPow+=3; logs.push(`${isMe?'自分':'相手'}「基地駐留」→ 戦力+3`); }
     if (eff==='drunk') {
       if (attackTarget.male && !attackTarget.noAlcohol) { if(isMe) oppPow-=2; else myPow-=2; logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${attackTarget.name} 戦力-2`); }
-      else if (attackTarget.noAlcohol) logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${attackTarget.name} は下戸なので効果なし`);
+      else if (attackTarget.noAlcohol) logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${attackTarget.name} はコーラしか飲まないので効果なし`);
       else logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${attackTarget.name} は効果なし`);
     }
     if (eff==='draw') { forceDraw=true; logs.push(`${isMe?'自分':'相手'}「仲裁」発動`); }
@@ -1068,7 +1068,7 @@ function resolveRound(mySel, oppSel, roomData) {
     if (eff === 'drunk') {
       const target = isMe ? oppM : myM;
       if (target.male && !target.noAlcohol) { if(isMe) oppPow-=2; else myPow-=2; logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${target.name} 戦力-2`); }
-      else if (target.noAlcohol) logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${target.name} は下戸なので効果なし`);
+      else if (target.noAlcohol) logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${target.name} はコーラしか飲まないので効果なし`);
       else logs.push(`${isMe?'自分':'相手'}「強いお酒」→ ${target.name} は効果なし`);
     }
     if (eff === 'draw') { forceDraw = true; logs.push(`${isMe?'自分':'相手'}「強制引き分け」発動`); }
