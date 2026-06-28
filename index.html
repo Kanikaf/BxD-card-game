@@ -809,7 +809,7 @@ function resolveRound(mySel, oppSel, roomData) {
     }
     if (eff === 'forcesupp') {
       const availSupp = ALL_CARDS.filter(c =>
-        ['B','S','T'].includes(c.type) &&
+        ['B','S'].includes(c.type) &&  // BANカード(T)は除外
         !gameState.usedSupp.includes(c.id) &&
         (isMe ? c.id !== (mySel ? mySel.main : null) : c.id !== (oppSel ? oppSel.main : null))
       );
